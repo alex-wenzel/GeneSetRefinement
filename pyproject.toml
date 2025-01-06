@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools==70.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sc_ssGSEA"
+
+version = "1.0.0"
+
+authors = [
+	{name = "Alexander T. Wenzel", email = "atwenzel@ucsd.edu"},
+]
+
+dependencies = [
+	## TODO: Add from new refactored modules
+]
+
+description = "A Python package for performing Gene Set Refinement."
+
+readme = "README.md"
+
+requires-python = ">=3.11.0"

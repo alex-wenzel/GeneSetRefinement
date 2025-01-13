@@ -32,4 +32,10 @@ refinement.run()
 
 for cluster_component in ref.component_clusters[k].values():
     print(cluster_component.gene_set.genes)
+
+## I/O functions - save and use results later
+
+refinement.save("refinement_result.pickle")
+
+refinement = gsr.Refinement.load("refinement_result.pickle")
 ```

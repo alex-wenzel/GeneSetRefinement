@@ -27,4 +27,9 @@ refinement = gsr.Refinement(
 )
 
 refinement.run()
+
+## Print the gene sets for a value of `k`
+
+for cluster_component in ref.component_clusters[k].values():
+    print(cluster_component.gene_set.genes)
 ```

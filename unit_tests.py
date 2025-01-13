@@ -7,8 +7,8 @@ following files to be present at the directory provided in sys.argv[1]:
 - processed_solid_samples/depmap23q2_crispr_solid_samples.gct
 """
 
-import argparse
 import numpy as np
+import os
 import pandas as pd
 import sys
 from typing import Dict
@@ -21,7 +21,8 @@ class ExpressionTests(unittest.TestCase):
 	expr: gsr.Expression
 	rng: np.random.Generator
 
-	def setUp(self):
+	@classmethod
+	def setUpClass(cls):
 		depmap_path = sys.argv[1]
 
 		if depmap_path[-1] != '/':
@@ -32,23 +33,23 @@ class ExpressionTests(unittest.TestCase):
 			f"depmap23q2_expression_solid_samples.gct"
 		)
 
-		self.expr = gsr.Expression.from_gct(
+		cls.expr = gsr.Expression.from_gct(
 			expression_path,
 			min_counts = -100
 		)
 
-		self.expr.normalize()
+		cls.expr.normalize()
 
-		self.rng = np.random.default_rng(49)
+		cls.rng = np.random.default_rng(49)
 
-		rnd_genes = self.rng.choice(
-			self.expr.gene_names,
+		rnd_genes = cls.rng.choice(
+			cls.expr.gene_names,
 			size = 100,
 			replace = False,
 		).tolist()
 
-		self.expr = gsr.Data2D.subset(
-			self.expr, 
+		cls.expr = gsr.Data2D.subset(
+			cls.expr, 
 			row_names = rnd_genes,
 		)
 
@@ -114,7 +115,8 @@ class ExpressionTests(unittest.TestCase):
 class PhenotypesTests(unittest.TestCase):
 	phenotypes: gsr.Phenotypes
 
-	def setUp(self):
+	@classmethod
+	def setUpClass(cls):
 		depmap_path = sys.argv[1]
 
 		if depmap_path[-1] != '/':
@@ -135,7 +137,7 @@ class PhenotypesTests(unittest.TestCase):
 			"proteomics": proteomics_path
 		}
 
-		self.phenotypes = gsr.Phenotypes.from_gcts(paths_d)
+		cls.phenotypes = gsr.Phenotypes.from_gcts(paths_d)
 
 	def test_select_phen_vec(self):
 		vec = self.phenotypes.get_phenotype_vector(
@@ -152,8 +154,9 @@ class PhenotypesTests(unittest.TestCase):
 class GeneSetTests(unittest.TestCase):
 	gene_set_path: str
 
-	def setUp(self):
-		self.gene_set_path = (
+	@classmethod
+	def setUpClass(cls):
+		cls.gene_set_path = (
 			"examples/input_gene_sets/REACTOME_SIGNALING_BY_ERBB2_v6.0.gmt"
 		)
 
@@ -178,75 +181,69 @@ class RefinementTests(unittest.TestCase):
 
 	ref: gsr.Refinement
 
-	def setUp(self):
+	#def setUp(self):
+	@classmethod
+	def setUpClass(cls):
+		#super(RefinementTests).setUpClass()
+
 		depmap_path = sys.argv[1]
 
 		if depmap_path[-1] != '/':
 			depmap_path += '/'
 
-		self.expression_path = (
+		cls.expression_path = (
 			f"{depmap_path}/processed_solid_samples/"
 			f"depmap23q2_expression_solid_samples.gct"
 		)
 
-		self.rppa_path = (
+		cls.rppa_path = (
 			f"{depmap_path}/processed_solid_samples/"
 			f"depmap23q2_rppa_solid_samples.gct"
 		)
 
-		self.proteomics_path = (
+		cls.proteomics_path = (
 			f"{depmap_path}/processed_solid_samples/"
 			f"depmap23q2_proteomics_solid_samples.gct"
 		)
 
-		self.paths_d = {
-			"rppa": self.rppa_path,
-			"proteomics": self.proteomics_path
+		cls.paths_d = {
+			"rppa": cls.rppa_path,
+			#"proteomics": cls.proteomics_path
 		}
 
-		self.gene_set_path = (
+		cls.gene_set_path = (
 			"examples/input_gene_sets/REACTOME_SIGNALING_BY_ERBB2_v6.0.gmt"
 		)
 
-		self.gene_set_name = "REACTOME_SIGNALING_BY_ERBB2_v6.0"
+		cls.gene_set_name = "REACTOME_SIGNALING_BY_ERBB2_v6.0"
 
-		self.ref = gsr.Refinement(
-			self.expression_path,
-			self.paths_d,
-			self.gene_set_path,
+		cls.ref = gsr.Refinement(
+			cls.expression_path,
+			cls.paths_d,
+			cls.gene_set_path,
 			"REACTOME_SIGNALING_BY_ERBB2_v6.0",
 			[2, 3, 4],
+			n_outer_iterations=2,
+			n_inner_iterations=3,
 			verbose = True
 		)
 
-		self.training_expr = self.ref._expr.subset_random_samples(
-			0.67,
-			self.ref._rng,
-			return_both = False
-		)
+		cls.ref.run()
 
-		self.ii = gsr.InnerIteration(
-			self.training_expr,
-			self.ref._gs,
-			0,
-			3,
-			self.ref._rng
-		)
-
-		self.ii.run()
+		cls.one_ii = cls.ref.iterations[3][0][0]
 
 	def test_instantiating_refinement(self):
 		self.assertListEqual(self.ref.k_values, [2, 3, 4])
 
 	def test_inner_iteration_instantiation(self):
 		self.assertEqual(
-			self.ii._gen_expr.n_samples, 
-			int(self.training_expr.n_samples * 0.50)
+			self.one_ii.generating_expression.n_samples,
+			int(self.one_ii.training_expression.n_samples * 0.50)
 		)
 
 	def test_inner_iteration_get_A(self):
 		self.assertEqual(
-			self.ii._A.n_genes,
+			self.one_ii.A.n_genes,
 			95
 		)
 
@@ -259,14 +256,14 @@ class RefinementTests(unittest.TestCase):
 			)
 		): 
 			gsr.Data2D.subset(
-				self.ii.A,
-				["CDKN2A", "ERBB2"], 
+				self.one_ii.A,
+				["CDKN2A", "ERBB2"],
 				["asdf", "asfasf"]
 			)
 
 	def test_good_A_matrix_subset(self):
 		subs_a = gsr.Data2D.subset(
-			self.ii.A,
+			self.one_ii.A,
 			["CDKN2A", "ERBB2"],
 			[]
 		)
@@ -275,18 +272,18 @@ class RefinementTests(unittest.TestCase):
 
 	def test_inner_iteration_nmf(self):
 		self.assertListEqual(
-			list(self.ii.W.shape),
-			[self.ii.A.n_genes, self.ii.k]
+			list(self.one_ii.W.shape),
+			[self.one_ii.A.n_genes, self.one_ii.k]
 		)
 
 		self.assertListEqual(
-			list(self.ii.H.shape),
-			[self.ii.k, self.ii.A.n_samples]
+			list(self.one_ii.H.shape),
+			[self.one_ii.k, self.one_ii.A.n_samples]
 		)
 
 	def test_W_matrix_good_subset(self):
 		subs_w = gsr.Data2D.subset(
-			self.ii.W,
+			self.one_ii.W,
 			["CDKN1A", "ERBB2"],
 			["0", "2"]
 		)
@@ -305,21 +302,93 @@ class RefinementTests(unittest.TestCase):
 			)
 		):
 			gsr.Data2D.subset(
-				self.ii.W,
+				self.one_ii.W,
 				["CDKN2A", "ERBB2"],
 				["asfd", "adfsdf"]
 			)
 
 	def test_gene_comp_ic_shape(self):
 		self.assertEqual(
-			self.ii._gene_comp_ic.shape[0], 
-			self.ii.A.shape[0]
+			self.one_ii.gene_component_IC.shape[0],
+			self.one_ii.A.shape[0]
 		)
 
 		self.assertEqual(
-			self.ii._gene_comp_ic.shape[1],
-			self.ii.H.shape[0]
+			self.one_ii.gene_component_IC.shape[1],
+			self.one_ii.H.shape[0]
 		)
+
+	def test_combined_gene_comp_ic_shape(self):
+		k = 3
+
+		comb = gsr.CombinedGeneComponentIC.from_refinement(
+			k,
+			self.ref
+		)
+
+		self.assertEqual(
+			self.one_ii.A.n_genes,
+			comb.shape[0]
+		)
+
+		self.assertEqual(
+			k * self.ref._n_inner * self.ref._n_outer,
+			comb.shape[1]
+		)
+
+	def test_component_cluster_separation(self):
+		k = 3
+
+		n_comps = sum([
+			len(self.ref.component_clusters[k][i].component_names)
+			for i in range(k)
+		])
+
+		self.assertEqual(
+			n_comps,
+			k * self.ref._n_inner * self.ref._n_outer
+		)
+
+	def test_all_ssgsea_res(self):
+		for k in self.ref.k_values:
+			ssgsea_res = self.ref.ssgsea_res[k]
+
+			self.assertEqual(
+				ssgsea_res.shape[0],
+				k + 1
+			)
+
+			self.assertEqual(
+				ssgsea_res.shape[1],
+				self.ref._expr.shape[1]
+			)
+
+	def test_phen_comp_ics(self):
+		phen_name = self.ref.phenotypes.phenotype_table_names[0]
+
+		for k in self.ref.k_values:
+			one_phen_comp = self.ref.phenotype_component_ics[k][0][phen_name]
+
+			self.assertEqual(
+				one_phen_comp.shape[0],
+				k + 1,
+			)
+
+			self.assertEqual(
+				one_phen_comp.shape[1],
+				self.ref.phenotypes[phen_name].shape[0]
+			)
+
+	def test_io(self):
+		out_path = "_test_ref_out.pickle"
+
+		self.ref.save(out_path)
+
+		load_obj = gsr.Refinement.load(out_path)
+
+		self.assertEqual(gsr.VERSION, load_obj._version)
+
+		os.remove(out_path)
 
 
 class UtilsTests(unittest.TestCase):
@@ -384,15 +453,16 @@ class Data2DTests(unittest.TestCase):
 		@property
 		def col_title(self) -> str: return "columns"
 
-	def setUp(self):
-		self.test_data: pd.DataFrame = pd.DataFrame(
+	@classmethod
+	def setUpClass(cls):
+		cls.test_data: pd.DataFrame = pd.DataFrame(
 			{"a": [1, 2, 3], "b": [4, 5, 6], "c": [7, 8, 9]},
 			index = ["r1", "r2", "r3"]
 		)
 
-		self.good_obj = self.GoodRealData(self.test_data)
-		self.bad_obj = self.BadRealData()
-		self.new_attr_obj = self.DataNewAttr(self.test_data, param = 5)
+		cls.good_obj = cls.GoodRealData(cls.test_data)
+		cls.bad_obj = cls.BadRealData()
+		cls.new_attr_obj = cls.DataNewAttr(cls.test_data, param = 5)
 
 	def test_check_attrs(self):
 		with self.assertRaisesRegex(	
@@ -446,6 +516,107 @@ class Data2DTests(unittest.TestCase):
 			new_child_obj._get_child_attrs()
 		)
 
+	def test_subset_nan(self):
+		obj = self.GoodRealData(
+			pd.DataFrame({
+				"a": [0, 		3, 		4,			4],
+				"b": [1, 		3, 		np.nan,		3],
+				"c": [np.nan,	np.nan, np.nan,		np.nan],
+				"d": [2,		3,		np.nan,		1]
+			})
+		)
+
+		## Test 1
+		subs = gsr.Data2D.subset(
+			obj,
+			drop_nan_columns="any"
+		)
+		self.assertTupleEqual(
+			subs.shape,
+			(4, 1)
+		)
+
+		## Test 2
+		subs = gsr.Data2D.subset(
+			obj,
+			drop_nan_rows = "all"
+		)
+		self.assertTupleEqual(
+			subs.shape,
+			(4, 4)
+		)
+
+		## Test 3
+		subs = gsr.Data2D.subset(
+			obj,
+			drop_nan_columns = "all"
+		)
+		self.assertTupleEqual(
+			subs.shape,
+			(4, 3)
+		)
+
+	def test_shared_subset(self):
+		obj1 = self.GoodRealData(
+			pd.DataFrame({
+				"a": [0, 1, 2],
+				"b": [3, 4, 5],
+				"c": [4, 5, 2],
+				"d": [4, 5, 1]
+			},
+			index = [f"r{i}" for i in range(3)] # r0, r1, r2,
+			)
+		)
+
+		obj2 = self.GoodRealData(
+			pd.DataFrame({
+				"b": [4, 5, 1],
+				"c": [3, 4, 1],
+				"d": [2, 3, 4],
+				"e": [1, 2, 4]
+			},
+			index = [f"r{i}" for i in range(2, 5)] # r2, r3, r4
+			)
+		)
+
+		## Rows only
+
+		subs_obj1, subs_obj2 = gsr.Data2D.subset_shared(
+			obj1,
+			obj2,
+			shared_rows = True
+		)
+		self.assertTupleEqual(
+			(subs_obj1.shape, subs_obj2.shape),
+			((1,4), (1,4))
+		)
+
+		## Columns only
+
+		subs_obj1, subs_obj2 = gsr.Data2D.subset_shared(
+			obj1,
+			obj2,
+			shared_cols = True
+		)
+		self.assertTupleEqual(
+			(subs_obj1.shape, subs_obj2.shape),
+			((3, 3), (3, 3))
+		)
+
+		## Rows and columns
+
+		subs_obj1, subs_obj2 = gsr.Data2D.subset_shared(
+			obj1,
+			obj2,
+			shared_rows = True,
+			shared_cols = True
+		)
+		self.assertTupleEqual(
+			(subs_obj1.shape, subs_obj2.shape),
+			((1, 3), (1, 3))
+		)
+
+
 
 if __name__ == "__main__":
 	## https://stackoverflow.com/questions/2812218/
@@ -453,7 +624,7 @@ if __name__ == "__main__":
 	unittest.main(
 		argv = [sys.argv[0]],
 		verbosity = 2,
-		#defaultTest = ["RefinementTests.test_W_matrix_good_subset"]
+		#defaultTest = ["RefinementTests"]
 	)
 
 

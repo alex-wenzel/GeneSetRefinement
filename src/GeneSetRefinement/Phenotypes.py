@@ -6,7 +6,34 @@ from gp.data import GCT
 import pandas as pd
 from typing import Dict, List, Optional
 
+from .Data2D import Data2D
 from .Utils import load_gct
+
+
+class Phenotype(Data2D):
+	_phen_name: str
+
+	def __init__(
+		self,
+		data: pd.DataFrame,
+		phen_name: str
+	) -> None:
+		"""
+		"""
+		super().__init__(data)
+		self._phen_name = phen_name
+
+	@property
+	def data_name(self) -> str: return "phenotype table"
+
+	@property
+	def row_title(self) -> str: return "phenotype feature"
+
+	@property
+	def col_title(self) -> str: return "phenotype sample"
+
+	@property
+	def phenotype_name(self) -> str: return self._phen_name
 
 
 class Phenotypes:
@@ -14,7 +41,8 @@ class Phenotypes:
 	Representation and access for phenotype data keyed by name of the 
 	particular dataset. 
 	"""
-	_data: Dict[str, pd.DataFrame]
+	_data: Dict[str, Phenotype]
+	_phen_table_names: List[str]
 
 	def __init__(
 		self,
@@ -29,7 +57,17 @@ class Phenotypes:
 		`phen_dfs` : `dict` of `str` to `pd.DataFrame`
 			Maps name of phenotype table to the corresponding dataframe 
 		"""
-		self._data = phen_dfs
+		self._data = {}
+
+		for name, df in phen_dfs.items():
+			self._data[name] = Phenotype(df, name)
+
+		## freeze order of names for consistent access
+		self._phen_table_names = list(self._data.keys())
+
+
+	def __getitem__(self, key: str) -> Phenotype:
+		return self._data[key]
 
 	@classmethod
 	def from_gcts(
@@ -96,7 +134,7 @@ class Phenotypes:
 			))
 
 		try:
-			phen_vec = pd.Series(phen_df.loc[phen_name,:])
+			phen_vec = pd.Series(phen_df.data.loc[phen_name,:])
 		except KeyError:
 			raise KeyError((
 				f"Phenotype '{phen_name}' not found in table '{table_name}'."
@@ -107,8 +145,8 @@ class Phenotypes:
 		else:
 			return phen_vec[samples]
 
-
-
+	@property
+	def phenotype_table_names(self) -> List[str]: return self._phen_table_names
 
 
 

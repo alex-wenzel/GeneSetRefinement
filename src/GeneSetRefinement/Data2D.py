@@ -4,8 +4,9 @@ refinement pipeline (gene-by-sample, gene-by-component, etc.)
 """
 
 from abc import ABC, abstractmethod
+from multiprocessing import Value
 import pandas as pd
-from typing import Any, Dict, List, Optional, Tuple, TypeVar
+from typing import Any, Dict, List, Literal, Optional, Tuple, TypeVar, Union
 from typing_extensions import Self
 
 
@@ -158,13 +159,57 @@ class Data2D(ABC):
 			if key not in self._base_attrs
 		}
 
+	HOW_T = Literal["any"] | Literal["all"]
+
+	def drop_nan_from_axis(
+		self,
+		axis: Literal[0] | Literal[1],
+		how: HOW_T
+	) -> None:
+		"""
+		Wrapper around `pandas.DataFrame.dropna()`. `how` must be `"any"` or
+		`"all"`.
+		"""
+		self._data = self._data.dropna(
+			axis = axis,
+			how = how
+		)
+
+	class NanFilterException(Exception):
+		def __init__(
+			self,
+			data: "Data2D",
+			axis: Literal["rows"] | Literal["columns"],
+			how: Literal["any"] | Literal["all"]
+		) -> None:
+			"""
+			"""
+			if axis == "rows":
+				item_names = data.row_title
+			elif axis == "columns":
+				item_names = data.col_title
+			else:
+				raise ValueError(  #type: ignore
+					f"Expected 'rows' or 'columns' for `axis`, got {axis}."
+				)
+
+			msg = (
+				f"Filtering {how} NaN {item_names} ({axis}) from "
+				f"{data.data_name} removed all {item_names}."
+			)
+
+			super().__init__(msg)
+
 	IN_DATA = TypeVar("IN_DATA", bound = "Data2D")
+
 	@classmethod
 	def subset(
 		cls,
 		data2d: IN_DATA, 
 		row_names: List[str] = [],
-		column_names: List[str] = []
+		column_names: List[str] = [],
+		drop_nan_rows: Optional[HOW_T] = None,
+		drop_nan_columns: Optional[HOW_T] = None,
 	) -> IN_DATA:
 		"""
 		Returns a new Expression object subset to the given gene and 
@@ -181,6 +226,14 @@ class Data2D(ABC):
 		`column_names` : `Iterable` of `str`
 			The columns to include in the subset. If empty, include
 			all columns. 
+
+		`drop_nan_rows` : `str`, default `None`
+			Can be `None`, `"any"` or `"all"`. Drops rows from the data 
+			accordingly after the features have been subset. 
+
+		`drop_nan_columns` : `str`, default `None`
+			Can be `None`, `"any"` or `"all"`. Drops columns from the data 
+			accordingly after the features have been subset. 
 		"""
 		ret_rows: List[str] = row_names
 		ret_columns: List[str] = column_names
@@ -191,7 +244,142 @@ class Data2D(ABC):
 		if len(ret_columns) == 0:
 			ret_columns = data2d.col_names
 
-		return data2d[ret_rows, ret_columns]
+		subs = data2d[ret_rows, ret_columns]
+
+		if drop_nan_rows is not None:
+			subs.drop_nan_from_axis(0, drop_nan_rows)
+
+			if subs.shape[0] == 0:
+				#raise ValueError(
+				#	f"No {subs.row_title} remain in {subs.data_name} after "
+				#	f"dropping rows with {drop_nan_rows} NaN values."
+				#)
+				raise cls.NanFilterException(
+					data2d, 
+					"rows", 
+					drop_nan_rows
+				)
+
+		if drop_nan_columns is not None:
+			subs.drop_nan_from_axis(1, drop_nan_columns)
+
+			if subs.shape[1] == 0:
+				#raise ValueError(
+				#	f"No {subs.col_title} remain in {subs.data_name} after "
+				#	f"dropping columns with {drop_nan_columns} NaN values."
+				#)
+				raise cls.NanFilterException(
+					data2d, 
+					"columns", 
+					drop_nan_columns
+				)
+
+		return subs
+
+	T_DATA_1 = TypeVar("T_DATA_1", bound = "Data2D")
+	T_DATA_2 = TypeVar("T_DATA_2", bound = "Data2D")
+
+	@classmethod
+	def subset_shared(
+		cls,
+		data1: T_DATA_1,
+		data2: T_DATA_2,
+		shared_rows: bool = False,
+		shared_cols: bool = False,
+		data1_drop_nan_rows: Optional[HOW_T] = None,
+		data1_drop_nan_columns: Optional[HOW_T] = None,
+		data2_drop_nan_rows: Optional[HOW_T] = None,
+		data2_drop_nan_columns: Optional[HOW_T] = None
+	) -> Tuple[T_DATA_1, T_DATA_2]:
+		"""
+		Takes two `Data2D` objects and subsets them to their shared rows
+		and/or columns. One or both of `shared_rows` and `shared_cols` 
+		must be set to `True`. Objects are returned in the order they were
+		provided. 
+
+		Parameters
+		----------
+		`data1` : `Data2D` subclass
+			The first object to use for subsetting.
+
+		`data2` : `Data2D` subclass
+			The second object to use for subsetting.
+
+		`shared_rows` : `bool`, default `False`
+			If `True`, subset both objects to the feature names they have 
+			in common. Must be `True` if `shared_cols` is `False`.
+
+		`shared_cols` : `bool`, default `False`
+			If `True`, subset both objects to the sample names they have
+			in common. Must be `True` if `shared_rows` is `False`.
+
+		See `subset()` documentation for `*_drop_nan_*` usage.
+
+		Returns
+		-------
+		`Tuple` of (`type[data1]`, `type[data2]`)
+			The objects in the order they were input. 
+		"""
+		if not (shared_rows or shared_cols):
+			raise ValueError(
+				"One or both of shared_rows and shared_cols must be True"
+			)
+
+		## Get rows to subset
+
+		if shared_rows:
+			data1_row_names = list(
+				set(data1.row_names).intersection(data2.row_names)
+			)
+
+			if len(data1_row_names) == 0:
+				raise ValueError(
+					f"No shared row names between {data1.data_name} and "
+					f"{data2.data_name} objects."
+				)
+
+			data2_row_names = data1_row_names
+		else:
+			data1_row_names = data1.row_names
+			data2_row_names = data2.row_names
+
+		## Get cols to subset
+
+		if shared_cols:
+			data1_col_names = list(
+				set(data1.col_names).intersection(data2.col_names)
+			)
+
+			if len(data1_col_names) == 0:
+				raise ValueError(
+					f"No shared column names between {data1.data_name} and "
+					f"{data2.data_name} objects."
+				)
+
+			data2_col_names = data1_col_names
+		else:
+			data1_col_names = data1.col_names
+			data2_col_names = data2.col_names
+
+		## Subset
+		data1_subs = cls.subset(
+			data1,
+			row_names = data1_row_names,
+			column_names = data1_col_names,
+			drop_nan_rows = data1_drop_nan_rows,
+			drop_nan_columns = data1_drop_nan_columns
+		)
+
+		data2_subs = cls.subset(
+			data2,
+			row_names = data2_row_names,
+			column_names = data2_col_names,
+			drop_nan_rows = data2_drop_nan_rows,
+			drop_nan_columns = data2_drop_nan_columns
+		)
+
+		return (data1_subs, data2_subs)
+
 
 	def squeeze(
 		self

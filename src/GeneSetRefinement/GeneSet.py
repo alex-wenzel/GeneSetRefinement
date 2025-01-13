@@ -47,6 +47,17 @@ class GeneSet:
 	_name: str
 	_genes: List[str]
 
+	class EmptyGeneSetException(Exception):
+		def __init__(
+			self,
+			gene_set_name: str
+		) -> None:
+			"""
+			"""
+			super().__init__(
+				f"Tried to instantiate gene set '{gene_set_name}' with 0 genes."
+			)
+
 	def __init__(
 		self,
 		gene_set_name: str,
@@ -63,6 +74,9 @@ class GeneSet:
 		`genes` : `List[str]`
 			The gene set genes. 
 		"""
+		#if len(gene_set_genes) == 0:
+		#	raise self.EmptyGeneSetException(gene_set_name)
+
 		self._name = gene_set_name
 		self._genes = gene_set_genes
 

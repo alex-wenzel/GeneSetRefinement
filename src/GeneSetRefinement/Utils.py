@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from gp.data import GCT
 from multiprocessing.pool import Pool
 import numpy as np
@@ -11,9 +13,9 @@ from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, TypeVar
 import warnings
 
 from .Data2D import Data2D
+from .GeneSet import GeneSet
 
 if TYPE_CHECKING:
-	from .GeneSet import GeneSet
 	from .Expression import Expression
 
 EPS = np.finfo(float).eps
@@ -357,7 +359,7 @@ def compute_information_coefficient(
 				x_arr.tolist(),
 				y_arr.tolist(),
 				gridsize = (n_grids, n_grids)
-			)[0]
+			)[0] + EPS
 
 			if fxy.shape[1] != n_grids:
 				n_grids = fxy.shape[1]
@@ -526,15 +528,17 @@ def single_sample_gsea(
 
 	in_int = in_.astype(int)
 
-	hit = (
-		gene_score_sorted_values_absolute * in_int
-	) / gene_score_sorted_values_absolute[in_].sum()
+	with warnings.catch_warnings():
+		warnings.simplefilter("ignore")
+		hit = (
+			gene_score_sorted_values_absolute * in_int
+		) / gene_score_sorted_values_absolute[in_].sum()
 
-	miss = (1 - in_int) / (in_.size - in_sum)
+		miss = (1 - in_int) / (in_.size - in_sum)
 
-	y = hit - miss
+		y = hit - miss
 
-	cumulative_sums = y.cumsum()
+		cumulative_sums = y.cumsum()
 
 	if statistic not in ("ks", "auc"):
 		raise ValueError(
@@ -566,13 +570,16 @@ class ssGSEAResult(Data2D):
 	def col_title(self) -> str: return "sample"
 
 
+## TODO: Re-parallelize
 def run_ssgsea_parallel(
 	gene_x_sample: Expression,
 	gene_sets: List[GeneSet],
-	statistic: str = "ks",
+	statistic: str = "auc",
 	n_job: int = 1
 ) -> ssGSEAResult:
 	"""
+	"""
+
 	"""
 	score__gene_set_x_sample = pd.concat(
 		multiprocess(
@@ -590,6 +597,15 @@ def run_ssgsea_parallel(
 	)
 
 	score__gene_set_x_sample = score__gene_set_x_sample[gene_x_sample.sample_names]
+
+	return ssGSEAResult(score__gene_set_x_sample)
+	"""
+
+	score__gene_set_x_sample = _single_sample_gseas(
+		gene_x_sample.data,
+		gene_sets,
+		statistic
+	)
 
 	return ssGSEAResult(score__gene_set_x_sample)
 

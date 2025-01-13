@@ -91,44 +91,6 @@ class Expression(Data2D):
 	def has_zero_row(self) -> bool:
 		return min(self._data.sum(axis = 1)) == 0
 
-	"""
-	@classmethod
-	def subset(
-		cls,
-		expr: "Expression",
-		gene_names: List[str] = [],
-		sample_names: List[str] = []
-	) -> "Expression":
-
-		Returns a new Expression object subset to the given gene and 
-		column names. 
-
-		Parameters
-		----------
-		`expr` : `Expression` 
-			The `Expression` object to subset from
-
-		`gene_names` : `Iterable` of `str`
-			The genes to include in the subset. If empty, include all genes.
-
-		`sample_names` : `Iterable` of `str`
-			The sample names to include in the subset. If empty, include
-			all samples. 
-
-		ret_genes = gene_names
-		ret_samples = sample_names
-
-		if len(gene_names) == 0:
-			ret_genes = expr.gene_names
-
-		if len(sample_names) == 0:
-			ret_samples = expr.sample_names
-
-		subset_df = expr[ret_genes, ret_samples]
-
-		return cls(subset_df.data, expr._min_counts)
-	"""
-
 	@overload
 	def subset_random_samples(
 		self,

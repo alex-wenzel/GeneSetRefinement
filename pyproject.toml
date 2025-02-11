@@ -3,20 +3,25 @@ requires = ["setuptools==70.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sc_ssGSEA"
+name = "GeneSetRefinement"
 
 version = "1.0.0"
 
 authors = [
-	{name = "Alexander T. Wenzel", email = "atwenzel@ucsd.edu"},
+	{name = "Alexander T. Wenzel", email = "atwenzel@ucsd.edu"}
 ]
 
 dependencies = [
-	## TODO: Add from new refactored modules
+	"pandas==2.2.2",
+	"typing_extensions==4.11.0",
+	"genepattern-python==22.10",
+	"numpy==1.24.3",
+	"scikit-learn==1.3.2",
+	"scipy==1.10.1"
 ]
 
-description = "A Python package for performing Gene Set Refinement."
+description = "A Python package implementing Gene Set Refinement."
 
 readme = "README.md"
 
-requires-python = ">=3.11.0"
+requires-python = ">=3.10.0"

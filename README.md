@@ -16,12 +16,12 @@ phenotype_paths = {
 	"data_type_2": "path/to/data2.gct",
 }
 
-input_gene_set = "path/to/gene_set.gmt"
+input_gene_set_path = "path/to/gene_set.gmt"
 
 refinement = gsr.Refinement(
 	compendium_expression,
 	phenotype_paths,
-	input_gmt_path,
+	input_gene_set_path,
 	"gene set name",
 	list(range(2, 10))
 )

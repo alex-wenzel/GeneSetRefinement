@@ -639,7 +639,6 @@ class PhenotypeComponentIC(Data2D):
 					)[0].subset(row_names = [phen_feature_name])
 
 
-
 				except Data2D.NanFilterException:
 					ic_array[x, y] = np.nan
 					continue

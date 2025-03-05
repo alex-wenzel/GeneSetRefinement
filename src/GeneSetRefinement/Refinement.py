@@ -13,7 +13,7 @@ import sys
 from typing import Any, Callable, Dict, List, Mapping, Optional, TypedDict, cast
 from typing_extensions import Self
 
-from .Data2D import Data2D
+from .Data2D import Data2D, Data2DView
 from .Expression import Expression
 from .GeneSet import GeneSet
 from .Phenotypes import Phenotype, Phenotypes
@@ -21,14 +21,15 @@ from .Utils import compute_information_coefficient, run_ssgsea_parallel, ssGSEAR
 from .version import VERSION
 
 
+"""
 class A_Matrix(Expression):
 	@classmethod
 	def _from_data2d(
 		cls,
 		data2d: "Expression | A_Matrix"
 	) -> "A_Matrix":
-		"""
-		"""
+		##
+		##
 		return cls(
 			data2d.data,
 			data2d.min_counts
@@ -44,6 +45,7 @@ class A_Matrix(Expression):
 
 	@property
 	def data_name(self) -> str: return "A matrix"
+"""
 
 
 class NMFResultMatrix(Data2D):
@@ -139,14 +141,16 @@ class NMF_H_Matrix(NMFResultMatrix):
 
 
 class NMFResult:
-	_A: A_Matrix
+	#_A: A_Matrix
+	_A: Data2DView[Expression]
 	_nmf: NMF
 	_W: NMF_W_Matrix
 	_H: NMF_H_Matrix
 
 	def __init__(
 		self,
-		A: A_Matrix,
+		#A: A_Matrix,
+		A: Data2DView[Expression],
 		k: int,
 		rng: np.random.Generator
 	) -> None:
@@ -156,8 +160,8 @@ class NMFResult:
 
 		Parameters
 		----------
-		`A` : `Expression`
-			The `A` matrix to decompose. 
+		`A` : `Data2DView[Expression]`
+			The `A` matrix to decompose, a subset of the original expression. 
 
 		`k` : `int`
 			The value of `k` (number of components) to use. 
@@ -185,16 +189,16 @@ class NMFResult:
 		"""
 		self._W = NMF_W_Matrix.from_array(
 			self._nmf.fit_transform(self._A.array),
-			index = self.A.gene_names
+			index = self.A.row_names
 		)
 
 		self._H = NMF_H_Matrix.from_array(
 			self._nmf.components_,
-			columns = self._A.sample_names
+			columns = self.A.col_names
 		)
 
 	@property
-	def A(self) -> A_Matrix: return self._A
+	def A(self) -> Data2DView[Expression]: return self._A
 
 	@property
 	def W(self) -> NMF_W_Matrix: return self._W
@@ -220,17 +224,25 @@ class GeneComponentIC(Data2D):
 			shape = (n_genes, n_components)
 		)
 
-		for i, gene_name in enumerate(nmf_result.A.gene_names):
+		for i, gene_name in enumerate(nmf_result.A.row_names):
 			
 			for j, component_name in enumerate(nmf_result.H.row_names):
 				
-				A_gene_vec: List[float] = Data2D.subset(
-					nmf_result.A,
+				#A_gene_vec: List[float] = Data2D.subset(
+				#	nmf_result.A,
+				#	row_names = [gene_name]
+				#).squeeze()
+
+				A_gene_vec: List[float] = nmf_result.A.subset(
 					row_names = [gene_name]
 				).squeeze()
 
-				H_comp_vec: List[float] = Data2D.subset(
-					nmf_result.H,
+				#H_comp_vec: List[float] = Data2D.subset(
+				#	nmf_result.H,
+				#	row_names = [component_name]
+				#).squeeze()
+
+				H_comp_vec: List[float] = nmf_result.H.subset(
 					row_names = [component_name]
 				).squeeze()
 
@@ -241,8 +253,7 @@ class GeneComponentIC(Data2D):
 
 		df = pd.DataFrame(
 			arr,
-			index = nmf_result.A.gene_names,
-			#columns = nmf_result.H.row_names
+			index = nmf_result.A.row_names,
 			columns = [
 				f"k{nmf_result.k}_o{outer_num}_i{inner_num}_c{h_indx}"
 				for h_indx in nmf_result.H.row_names
@@ -295,7 +306,7 @@ class CombinedGeneComponentIC(Data2D):
 
 class InnerIteration:
 	## Inputs
-	_train_expr: Expression 
+	_train_expr: Data2DView[Expression] 
 	_gs: GeneSet
 	_i: int ## external outer index
 	_j: int ## external inner index
@@ -304,14 +315,14 @@ class InnerIteration:
 	_max_tries: int
 
 	## Intermediates + results
-	_gen_expr: Expression
-	_A: A_Matrix
+	_gen_expr: Data2DView[Expression]
+	_A: Data2DView[Expression]
 	_nmf_result: NMFResult
 	_gene_comp_ic: GeneComponentIC
 
 	def __init__(
 		self,
-		training_expression: Expression,
+		training_expression: Data2DView[Expression],
 		input_gene_set: GeneSet,
 		i: int,
 		j: int,
@@ -326,8 +337,8 @@ class InnerIteration:
 
 		Parameters
 		----------
-		`training_expression` : `Expression`
-			`Expression` object subet to the 2/3rds training samples (see
+		`training_expression` : `Data2DView[Expression]`
+			Subset of `Expression` object subet to the 2/3rds training samples (see
 			documentation/paper). 
 
 		`input_gene_set` : `GeneSet`
@@ -387,7 +398,7 @@ class InnerIteration:
 			self._j
 		)
 
-	def _get_A(self) -> A_Matrix:
+	def _get_A(self) -> Data2DView[Expression]:
 		"""
 		Returns the `A` matrix for this interation, i.e., the generation matrix
 		subset to the gene set genes. 
@@ -398,19 +409,27 @@ class InnerIteration:
 			The `A` matrix containing the gene set genes and the generation 
 			samples. 
 		"""
-		return Data2D.subset(
-			A_Matrix.from_expression(
-				self._gen_expr
-			),
-			row_names = self._gs.genes,
-			column_names = []
+		#return Data2D.subset(
+		#	A_Matrix.from_expression(
+		#		self._gen_expr
+		#	),
+		#	row_names = self._gs.genes,
+		#	column_names = []
+		#)
+
+		shared_gs_genes: List[str] = list(
+			set(self._gen_expr.row_names).intersection(self._gs.genes)
 		)
+
+		return self._gen_expr.subset(row_names = shared_gs_genes)
+
 
 	@property
 	def k(self) -> int: return self._k
 
 	@property
-	def A(self) -> A_Matrix: return self._A
+	#def A(self) -> A_Matrix: return self._A
+	def A(self) -> Data2DView[Expression]: return self._A
 
 	@property
 	def W(self) -> NMF_W_Matrix: return self._nmf_result.W
@@ -422,10 +441,14 @@ class InnerIteration:
 	def gene_component_IC(self) -> GeneComponentIC: return self._gene_comp_ic
 
 	@property
-	def training_expression(self) -> Expression: return self._train_expr
+	#def training_expression(self) -> Expression: return self._train_expr
+	def training_expression(self) -> Data2DView[Expression]: 
+		return self._train_expr
 
 	@property
-	def generating_expression(self) -> Expression: return self._gen_expr
+	#def generating_expression(self) -> Expression: return self._gen_expr
+	def generating_expression(self) -> Data2DView[Expression]:
+		return self._gen_expr
 
 class ComponentCluster:
 	_k: int
@@ -470,21 +493,28 @@ class ComponentCluster:
 		self,
 		gene_comp_ic_df: CombinedGeneComponentIC,
 		cluster_labels: pd.Series
-	) -> CombinedGeneComponentIC:
+	#) -> CombinedGeneComponentIC:
+	) -> Data2DView[CombinedGeneComponentIC]:
 		"""
 		"""
 		samples_in_cluster: List[str] = cluster_labels[
 			cluster_labels == self._cluster_number
 		].index.tolist()
 
-		return Data2D.subset(
-			gene_comp_ic_df,
+		#return Data2D.subset(
+		#	gene_comp_ic_df,
+		#	column_names = samples_in_cluster
+		#)
+
+		return gene_comp_ic_df.subset(
 			column_names = samples_in_cluster
 		)
 
+
 	def _get_component_gene_set(
 		self,
-		cluster_gene_comp_ic: CombinedGeneComponentIC
+		#cluster_gene_comp_ic: CombinedGeneComponentIC
+		cluster_gene_comp_ic: Data2DView[CombinedGeneComponentIC]
 	) -> GeneSet:
 		"""
 		"""
@@ -523,8 +553,10 @@ class PhenotypeComponentIC(Data2D):
 		def __init__(
 			self,
 			e: Exception,
-			ssgsea_data: ssGSEAResult,
-			phen_vec: Phenotype,
+			#ssgsea_data: ssGSEAResult,
+			#phen_vec: Phenotype,
+			ssgsea_data: Data2DView[ssGSEAResult],
+			phen_vec: Data2DView[Phenotype],
 			gene_set_name: str,
 			phen_name: str,
 			phen_feature_name: str
@@ -563,8 +595,12 @@ class PhenotypeComponentIC(Data2D):
 		test_sample_names: List[str] = refinement.test_samples[k][i]
 		phen_data: Phenotype = refinement.phenotypes[phen_name]
 
-		test_ssgsea_res = Data2D.subset(
-			full_ssgsea_res_df,
+		#test_ssgsea_res = Data2D.subset(
+		#	full_ssgsea_res_df,
+		#	column_names = test_sample_names
+		#)
+
+		test_ssgsea_res = full_ssgsea_res_df.subset(
 			column_names = test_sample_names
 		)
 
@@ -574,26 +610,46 @@ class PhenotypeComponentIC(Data2D):
 			
 			for y, phen_feature_name in enumerate(phen_data.row_names):
 
-				#print(f"Comparing {gene_set_name} ({x}/{test_ssgsea_res.shape[0]}) and {phen_feature_name} ({y}/{phen_data.shape[0]})")
+				#one_ssgsea_res = Data2D.subset(
+				#	test_ssgsea_res,
+				#	row_names = [gene_set_name]
+				#)
 
-				one_ssgsea_res = Data2D.subset(
-					test_ssgsea_res,
+				one_ssgsea_res = test_ssgsea_res.subset(
 					row_names = [gene_set_name]
 				)
 
 				try:
-					phen_vec = Data2D.subset(
-						phen_data,
-						row_names = [phen_feature_name],
-						column_names = one_ssgsea_res.col_names,
-						drop_nan_columns = "any"
-					)
+					#phen_vec = Data2D.subset(
+					#	phen_data,
+					#	row_names = [phen_feature_name],
+					#	column_names = one_ssgsea_res.col_names,
+					#	drop_nan_columns = "any"
+					#)
+					
+					#phen_vec = phen_data.subset(
+					#	row_names = [phen_feature_name],
+					#	column_names = one_ssgsea_res.col_names,
+					#	drop_nan_columns="any"
+					#)
+
+					phen_vec = phen_data.subset_shared(
+						one_ssgsea_res,
+						shared_cols = True
+					)[0].subset(row_names = [phen_feature_name])
+
+
+
 				except Data2D.NanFilterException:
 					ic_array[x, y] = np.nan
 					continue
 
-				one_ssgsea_res, phen_vec = Data2D.subset_shared(
-					one_ssgsea_res,
+				#one_ssgsea_res, phen_vec = Data2D.subset_shared(
+				#	one_ssgsea_res,
+				#	phen_vec,
+				#	shared_cols = True
+				#)
+				one_ssgsea_res, phen_vec = one_ssgsea_res.subset_shared(
 					phen_vec,
 					shared_cols = True
 				)
@@ -857,8 +913,9 @@ class Refinement:
 					max_tries = self._max_tries
 				)
 
+				## TODO: Can rewrite test samples as Data2DView lists
 				self._test_samples[k].append(
-					test.sample_names
+					test.col_names
 				)
 
 				for j in range(self._n_inner):

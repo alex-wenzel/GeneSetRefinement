@@ -93,45 +93,19 @@ class Data2DAbs(metaclass=ABCMeta):
 			if key not in self._base_attrs
 		}
 
+	@abstractmethod
 	def _get_row_inds(
 		self,
 		row_names: List[str]
 	) -> List[int]:
-		all_row_names = self.row_names
+		pass
 
-		#return [
-		#	all_row_names.index(rn) for rn in row_names
-		#]
-
-		row_inds: List[int] = []
-
-		for rn in row_names:
-			try:
-				row_inds.append(all_row_names.index(rn))
-			except ValueError:
-				continue
-
-		return row_inds
-
+	@abstractmethod
 	def _get_col_inds(
 		self,
 		column_names: List[str]
 	) -> List[int]:
-		all_col_names = self.col_names
-
-		#return [
-		#	all_col_names.index(cn) for cn in column_names
-		#]
-
-		col_inds: List[int] = []
-
-		for cn in column_names:
-			try:
-				col_inds.append(all_col_names.index(cn))
-			except ValueError:
-				continue
-
-		return col_inds
+		pass
 
 
 	class NanFilterException(Exception):
@@ -321,14 +295,39 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 
 		filt_data: pd.DataFrame = self.data.loc[shared_rows, shared_cols]
 
-		#child_kwargs: Dict[str, Any] = {
-		#	key.strip('_'): value
-		#	for key, value in self._get_child_attrs().items()
-		#}
-
-		#return self.__class__(filt_data, **child_kwargs)
-
 		return self.__class__(filt_data)
+	
+	def _get_row_inds(
+		self, 
+		row_names: List[str]
+	) -> List[int]:
+		all_row_names: List[str] = self._data.index.to_list()
+
+		row_inds: List[int] = []
+
+		for rn in row_names:
+			try:
+				row_inds.append(all_row_names.index(rn))
+			except ValueError:
+				continue
+
+		return row_inds
+	
+	def _get_col_inds(
+		self,
+		column_names: List[str]
+	) -> List[int]:
+		all_col_names: List[str] = self._data.columns.to_list()
+
+		col_inds: List[int] = []
+
+		for cn in column_names:
+			try:
+				col_inds.append(all_col_names.index(cn))
+			except ValueError:
+				continue
+
+		return col_inds
 
 	HOW_T = Literal["any"] | Literal["all"]
 
@@ -410,6 +409,12 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 			raise ValueError(
 				"One or both of shared_rows and shared_cols must be True"
 			)
+		
+		self_row_order: Dict[str, int] = {rn: i for i, rn in enumerate(self.row_names)}
+		self_col_order: Dict[str, int] = {cn: i for i, cn in enumerate(self.col_names)}
+
+		other_row_order: Dict[str, int] = {rn: i for i, rn in enumerate(other.row_names)}
+		other_col_order: Dict[str, int] = {cn: i for i, cn in enumerate(other.col_names)}
 
 		## Get rows to subset
 
@@ -430,6 +435,9 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 			self_row_names = self.row_names
 			other_row_names = other.row_names
 
+		self_row_names.sort(key = lambda rn: self_row_order[rn])
+		other_row_names.sort(key = lambda cn: other_row_order[cn])
+
 		## Get columns to subset
 
 		if shared_cols:
@@ -448,6 +456,9 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 		else:
 			self_col_names = self.col_names
 			other_col_names = other.col_names
+
+		self_col_names.sort(key = lambda rn: self_col_order[rn])
+		other_col_names.sort(key = lambda cn: other_col_order[cn])
 
 		self_subs = self.subset(
 			row_names = self_row_names,
@@ -506,6 +517,9 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 		## Define sampling checks
 		n_to_choose = int(self.shape[1] * frac)
 
+		# Save column order
+		col_order: Dict[str, int] = {cn: i for i, cn in enumerate(self.col_names)}
+
 		## Sampling loop
 		while True:
 			## Choose columns for 'keep' matrix
@@ -515,14 +529,13 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 				replace = False
 			).tolist()
 
+			keep_cols.sort(key = lambda cn: col_order[cn])
+
 			## Build keep and discard matrices
 			disc_cols = [
 				col for col in self.col_names
 				if col not in keep_cols
 			]
-
-			#keep = Data2D.subset(self, self.gene_names, keep_cols)
-			#disc = Data2D.subset(self, self.gene_names, disc_cols)
 
 			keep = self.subset(self.row_names, keep_cols)
 			disc = self.subset(self.row_names, disc_cols)
@@ -587,22 +600,22 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 
 	@property
 	def row_names(self) -> List[str]:
-		self._check_attrs(["_data"])
+		#self._check_attrs(["_data"])
 		return self._data.index.to_list()
 
 	@property
 	def col_names(self) -> List[str]: 
-		self._check_attrs(["_data"])
+		#self._check_attrs(["_data"])
 		return self._data.columns.to_list()
 
 	@property
 	def data(self) -> pd.DataFrame:
-		self._check_attrs(["_data"])
+		#self._check_attrs(["_data"])
 		return self._data
 
 	@property
 	def shape(self) -> Tuple[int, int]:
-		self._check_attrs(["_data"])
+		#self._check_attrs(["_data"])
 		return self._data.shape
 
 	@property
@@ -659,6 +672,38 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 			self._get_row_inds(shared_rows),
 			self._get_col_inds(shared_cols)
 		)
+	
+	def _get_row_inds(
+		self,
+		row_names: List[str]
+	) -> List[int]:
+		all_row_names: List[str] = self._data2d._data.index.to_list()
+
+		row_inds: List[int] = []
+
+		for rn in row_names:
+			try:
+				row_inds.append(all_row_names.index(rn))
+			except ValueError:
+				continue
+
+		return row_inds
+	
+	def _get_col_inds(
+		self,
+		column_names: List[str]
+	) -> List[int]:
+		all_col_names: List[str] = self._data2d._data.columns.to_list()
+
+		col_inds: List[int] = []
+
+		for cn in column_names:
+			try:
+				col_inds.append(all_col_names.index(cn))
+			except ValueError:
+				continue
+
+		return col_inds
 
 	HOW_T = Literal["any"] | Literal["all"]
 
@@ -739,16 +784,24 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 			)
 
 		if axis == 0:
+			col_inds_order = {ind: i for i, ind in enumerate(self._col_inds)}
+
 			self._col_inds = list(
 				set(self._col_inds)
 				.intersection(all_check[all_check].index.to_list())
 			)
 
+			self._col_inds.sort(key = lambda ind: col_inds_order[ind])
+
 		elif axis == 1:
+			row_inds_order = {ind: i for i, ind in enumerate(self._row_inds)}
+
 			self._row_inds = list(
 				set(self._row_inds)
 				.intersection(all_check[all_check].index.to_list())
 			)
+
+			self._row_inds.sort(key = lambda ind: row_inds_order[ind])
 
 		else:
 			raise ValueError(f"axis must be 0 or 1, got {axis}")
@@ -771,6 +824,12 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 			raise ValueError(
 				"One or both of shared_rows and shared_cols must be True"
 			)
+		
+		self_row_order: Dict[str, int] = {rn: i for i, rn in enumerate(self.row_names)}
+		self_col_order: Dict[str, int] = {cn: i for i, cn in enumerate(self.col_names)}
+
+		other_row_order: Dict[str, int] = {rn: i for i, rn in enumerate(other.row_names)}
+		other_col_order: Dict[str, int] = {cn: i for i, cn in enumerate(other.col_names)}
 
 		## Get rows to subset
 
@@ -791,6 +850,9 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 			self_row_names = self.row_names
 			other_row_names = other.row_names
 
+		self_row_names.sort(key = lambda rn: self_row_order[rn])
+		other_row_names.sort(key = lambda cn: other_row_order[cn])
+
 		## Get columns to subset
 
 		if shared_cols:
@@ -809,6 +871,9 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 		else:
 			self_col_names = self.col_names
 			other_col_names = other.col_names
+
+		self_col_names.sort(key = lambda rn: self_col_order[rn])
+		other_col_names.sort(key = lambda cn: other_col_order[cn])
 
 		self_subs = self.subset(
 			row_names = self_row_names,
@@ -867,6 +932,8 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 		## Define sampling checks
 		n_to_choose = int(self.shape[1] * frac)
 
+		col_order: Dict[str, int] = {cn: i for i, cn in enumerate(self.col_names)}
+
 		## Sampling loop
 		while True:
 			## Choose columns for 'keep' matrix
@@ -876,14 +943,13 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 				replace = False
 			).tolist()
 
+			keep_cols.sort(key = lambda cn: col_order[cn])
+
 			## Build keep and discard matrices
 			disc_cols = [
 				col for col in self.col_names
 				if col not in keep_cols
 			]
-
-			#keep = Data2D.subset(self, self.gene_names, keep_cols)
-			#disc = Data2D.subset(self, self.gene_names, disc_cols)
 
 			keep = self.subset(self.row_names, keep_cols)
 			disc = self.subset(self.row_names, disc_cols)
@@ -916,12 +982,28 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 	) -> List[float]:
 		"""
 		"""
+
+		"""
 		if self.shape[0] == 1:
 			return self._data2d.data.iloc[0,self._col_inds].to_list()
 
 		elif self.shape[1] == 1:
 			return self._data2d.data.iloc[self._row_inds,0].to_list()
 
+		else:
+			raise ValueError(
+				f"Cannot call squeeze() for data of shape {self.shape}."
+			)
+		"""
+
+		if len(self._row_inds) == 1:
+			ind = self._row_inds[0]
+			return self._data2d.data.iloc[ind, self._col_inds].to_list()
+		
+		elif len(self._col_inds) == 1:
+			ind = self._col_inds[0]
+			return self._data2d.data.iloc[self._row_inds, ind].to_list()
+		
 		else:
 			raise ValueError(
 				f"Cannot call squeeze() for data of shape {self.shape}."

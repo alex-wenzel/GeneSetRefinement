@@ -21,33 +21,6 @@ from .Utils import compute_information_coefficient, run_ssgsea_parallel, ssGSEAR
 from .version import VERSION
 
 
-"""
-class A_Matrix(Expression):
-	@classmethod
-	def _from_data2d(
-		cls,
-		data2d: "Expression | A_Matrix"
-	) -> "A_Matrix":
-		##
-		##
-		return cls(
-			data2d.data,
-			data2d.min_counts
-		)
-
-	@classmethod
-	def from_expression(cls, expr: Expression) -> "A_Matrix":
-		return cls._from_data2d(expr)
-
-	@classmethod
-	def from_A_matrix(cls, a_matrix: "A_Matrix") -> "A_Matrix":
-		return cls._from_data2d(a_matrix)
-
-	@property
-	def data_name(self) -> str: return "A matrix"
-"""
-
-
 class NMFResultMatrix(Data2D):
 	@classmethod
 	def _np2df(
@@ -227,20 +200,10 @@ class GeneComponentIC(Data2D):
 		for i, gene_name in enumerate(nmf_result.A.row_names):
 			
 			for j, component_name in enumerate(nmf_result.H.row_names):
-				
-				#A_gene_vec: List[float] = Data2D.subset(
-				#	nmf_result.A,
-				#	row_names = [gene_name]
-				#).squeeze()
 
 				A_gene_vec: List[float] = nmf_result.A.subset(
 					row_names = [gene_name]
 				).squeeze()
-
-				#H_comp_vec: List[float] = Data2D.subset(
-				#	nmf_result.H,
-				#	row_names = [component_name]
-				#).squeeze()
 
 				H_comp_vec: List[float] = nmf_result.H.subset(
 					row_names = [component_name]
@@ -409,19 +372,8 @@ class InnerIteration:
 			The `A` matrix containing the gene set genes and the generation 
 			samples. 
 		"""
-		#return Data2D.subset(
-		#	A_Matrix.from_expression(
-		#		self._gen_expr
-		#	),
-		#	row_names = self._gs.genes,
-		#	column_names = []
-		#)
 
-		shared_gs_genes: List[str] = list(
-			set(self._gen_expr.row_names).intersection(self._gs.genes)
-		)
-
-		return self._gen_expr.subset(row_names = shared_gs_genes)
+		return self._gen_expr.subset(row_names = self._gs.genes)
 
 
 	@property
@@ -493,18 +445,12 @@ class ComponentCluster:
 		self,
 		gene_comp_ic_df: CombinedGeneComponentIC,
 		cluster_labels: pd.Series
-	#) -> CombinedGeneComponentIC:
 	) -> Data2DView[CombinedGeneComponentIC]:
 		"""
 		"""
 		samples_in_cluster: List[str] = cluster_labels[
 			cluster_labels == self._cluster_number
 		].index.tolist()
-
-		#return Data2D.subset(
-		#	gene_comp_ic_df,
-		#	column_names = samples_in_cluster
-		#)
 
 		return gene_comp_ic_df.subset(
 			column_names = samples_in_cluster
@@ -553,8 +499,6 @@ class PhenotypeComponentIC(Data2D):
 		def __init__(
 			self,
 			e: Exception,
-			#ssgsea_data: ssGSEAResult,
-			#phen_vec: Phenotype,
 			ssgsea_data: Data2DView[ssGSEAResult],
 			phen_vec: Data2DView[Phenotype],
 			gene_set_name: str,
@@ -595,11 +539,6 @@ class PhenotypeComponentIC(Data2D):
 		test_sample_names: List[str] = refinement.test_samples[k][i]
 		phen_data: Phenotype = refinement.phenotypes[phen_name]
 
-		#test_ssgsea_res = Data2D.subset(
-		#	full_ssgsea_res_df,
-		#	column_names = test_sample_names
-		#)
-
 		test_ssgsea_res = full_ssgsea_res_df.subset(
 			column_names = test_sample_names
 		)
@@ -610,29 +549,11 @@ class PhenotypeComponentIC(Data2D):
 			
 			for y, phen_feature_name in enumerate(phen_data.row_names):
 
-				#one_ssgsea_res = Data2D.subset(
-				#	test_ssgsea_res,
-				#	row_names = [gene_set_name]
-				#)
-
 				one_ssgsea_res = test_ssgsea_res.subset(
 					row_names = [gene_set_name]
 				)
 
 				try:
-					#phen_vec = Data2D.subset(
-					#	phen_data,
-					#	row_names = [phen_feature_name],
-					#	column_names = one_ssgsea_res.col_names,
-					#	drop_nan_columns = "any"
-					#)
-					
-					#phen_vec = phen_data.subset(
-					#	row_names = [phen_feature_name],
-					#	column_names = one_ssgsea_res.col_names,
-					#	drop_nan_columns="any"
-					#)
-
 					phen_vec = phen_data.subset_shared(
 						one_ssgsea_res,
 						shared_cols = True
@@ -643,11 +564,6 @@ class PhenotypeComponentIC(Data2D):
 					ic_array[x, y] = np.nan
 					continue
 
-				#one_ssgsea_res, phen_vec = Data2D.subset_shared(
-				#	one_ssgsea_res,
-				#	phen_vec,
-				#	shared_cols = True
-				#)
 				one_ssgsea_res, phen_vec = one_ssgsea_res.subset_shared(
 					phen_vec,
 					shared_cols = True

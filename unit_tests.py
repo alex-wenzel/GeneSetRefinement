@@ -10,6 +10,7 @@ following files to be present at the directory provided in sys.argv[1]:
 import numpy as np
 import os
 import pandas as pd
+import string
 import sys
 from typing import Dict
 import unittest
@@ -489,40 +490,6 @@ class Data2DTests(unittest.TestCase):
 		cls.bad_obj = cls.BadRealData()
 		cls.new_attr_obj = cls.DataNewAttr(cls.test_data, param = 5)
 
-	#def test_check_attrs(self):
-	#	with self.assertRaisesRegex(	
-	#		AttributeError,
-	#		(
-	#			r"Missing attribute\(s\) _data. Does BadRealData\.__init__\(\) "
-	#			r"call super\(\)\.__init__\(\)\?"
-	#		)
-	#	):
-	#		self.bad_obj.data
-	#
-	#	self.assertEqual(
-	#		self.good_obj.row_names,
-	#		["r1", "r2", "r3"]
-	#	)
-
-	"""
-	def test_parent_attrs(self):
-		self.assertSetEqual(
-			set(self.good_obj._base_attrs.keys()),
-			set(["_data", "_base_attrs"])
-		)
-
-	def test_child_attrs(self):
-		self.assertDictEqual(
-			self.good_obj._get_child_attrs(),
-			{}
-		)
-
-		self.assertDictEqual(
-			self.new_attr_obj._get_child_attrs(),
-			{"_param": 5}
-		)
-	"""
-
 	def test_getitem(self):
 		new_obj = self.good_obj[["r1", "r3", "r4"], ["a", "c"]]
 
@@ -536,13 +503,6 @@ class Data2DTests(unittest.TestCase):
 			["a", "c"]
 		)
 
-		#new_child_obj = self.new_attr_obj[["r1", "r3", "r4"], ["a", "c"]]
-
-		#self.assertDictEqual(
-		#	self.new_attr_obj._get_child_attrs(),
-		#	new_child_obj._get_child_attrs()
-		#)
-
 	def test_subset_nan(self):
 		obj = self.GoodRealData(
 			pd.DataFrame({
@@ -554,10 +514,6 @@ class Data2DTests(unittest.TestCase):
 		)
 
 		## Test 1
-		#subs = gsr.Data2D.subset(
-		#	obj,
-		#	drop_nan_columns="any"
-		#)
 		subs = obj.subset(
 			drop_nan_columns="any"
 		)
@@ -567,10 +523,6 @@ class Data2DTests(unittest.TestCase):
 		)
 
 		## Test 2
-		#subs = gsr.Data2D.subset(
-		#	obj,
-		#	drop_nan_rows = "all"
-		#)
 		subs = obj.subset(
 			drop_nan_rows = "all"
 		)
@@ -580,10 +532,6 @@ class Data2DTests(unittest.TestCase):
 		)
 
 		## Test 3
-		#subs = gsr.Data2D.subset(
-		#	obj,
-		#	drop_nan_columns = "all"
-		#)
 		subs = obj.subset(
 			drop_nan_columns="all"
 		)
@@ -617,11 +565,6 @@ class Data2DTests(unittest.TestCase):
 
 		## Rows only
 
-		#subs_obj1, subs_obj2 = gsr.Data2D.subset_shared(
-		#	obj1,
-		#	obj2,
-		#	shared_rows = True
-		#)
 		subs_obj1, subs_obj2 = obj1.subset_shared(
 			obj2,
 			shared_rows = True
@@ -633,11 +576,6 @@ class Data2DTests(unittest.TestCase):
 
 		## Columns only
 
-		#subs_obj1, subs_obj2 = gsr.Data2D.subset_shared(
-		#	obj1,
-		#	obj2,
-		#	shared_cols = True
-		#)
 		subs_obj1, subs_obj2 = obj1.subset_shared(
 			obj2,
 			shared_cols = True
@@ -649,12 +587,6 @@ class Data2DTests(unittest.TestCase):
 
 		## Rows and columns
 
-		#subs_obj1, subs_obj2 = gsr.Data2D.subset_shared(
-		#	obj1,
-		#	obj2,
-		#	shared_rows = True,
-		#	shared_cols = True
-		#)
 		subs_obj1, subs_obj2 = obj1.subset_shared(
 			obj2,
 			shared_rows = True,
@@ -665,6 +597,109 @@ class Data2DTests(unittest.TestCase):
 			((1, 3), (1, 3))
 		)
 
+	def test_get_row_inds_data2d(self):
+		obj = self.GoodRealData(
+			pd.DataFrame({
+				"a": [0, 1, 2],
+				"b": [3, 4, 5],
+				"c": [4, 5, 2],
+				"d": [4, 5, 1]
+			},
+			index = [f"r{i}" for i in range(3)] # r0, r1, r2,
+			)
+		)
+
+		inds = obj._get_row_inds(["r1", "r2"])
+
+		self.assertListEqual(inds, [1, 2])
+
+	def test_get_col_inds_data2d(self):
+		obj = self.GoodRealData(
+			pd.DataFrame({
+				"a": [0, 1, 2],
+				"b": [3, 4, 5],
+				"c": [4, 5, 2],
+				"d": [4, 5, 1]
+			},
+			index = [f"r{i}" for i in range(3)] # r0, r1, r2,
+			)
+		)
+
+		inds = obj._get_col_inds(["b", "d"])
+
+		self.assertListEqual(inds, [1, 3])
+	
+	def test_get_row_inds_data2dview(self):
+		obj = self.GoodRealData(
+			pd.DataFrame({
+				"a": [0, 1, 2],
+				"b": [3, 4, 5],
+				"c": [4, 5, 2],
+				"d": [4, 5, 1]
+			},
+			index = [f"r{i}" for i in range(3)] # r0, r1, r2,
+			)
+		)
+
+		subs_obj = obj.subset(row_names = ["r1", "r2"])
+
+		inds = subs_obj._get_row_inds(["r1", "r2"])
+
+		self.assertListEqual(inds, [1, 2])
+
+	def test_get_col_inds_data2dview(self):
+		obj = self.GoodRealData(
+			pd.DataFrame({
+				"a": [0, 1, 2],
+				"b": [3, 4, 5],
+				"c": [4, 5, 2],
+				"d": [4, 5, 1]
+			},
+			index = [f"r{i}" for i in range(3)] # r0, r1, r2,
+			)
+		)
+
+		subs_obj = obj.subset(column_names = ["b", "d"])
+
+		inds = subs_obj._get_col_inds(["b", "d"])
+
+		self.assertListEqual(inds, [1, 3])
+
+	def test_row_subset_order(self):
+		full_names = [char for char in string.ascii_letters]
+
+		subset_names = [char for char in string.ascii_lowercase[::-1]]
+
+		obj = self.GoodRealData(
+			pd.DataFrame({
+				char: [1, 2, 3]
+				for char in full_names
+			}).T
+		)
+
+		subs_obj = obj.subset(row_names = subset_names)
+
+		joined_subs_row_names = ''.join(subs_obj.row_names)
+
+		self.assertEqual(joined_subs_row_names, string.ascii_lowercase[::-1])
+
+	def test_col_subset_order(self):
+		full_names = [char for char in string.ascii_letters]
+
+		subset_names = [char for char in string.ascii_lowercase[::-1]]
+
+		obj = self.GoodRealData(
+			pd.DataFrame({
+				char: [1, 2, 3]
+				for char in full_names
+			})
+		)
+
+		subs_obj = obj.subset(column_names = subset_names)
+
+		joined_subs_col_names = ''.join(subs_obj.col_names)
+
+		self.assertEqual(joined_subs_col_names, string.ascii_lowercase[::-1])
 
 
 if __name__ == "__main__":
@@ -673,13 +708,13 @@ if __name__ == "__main__":
 	unittest.main(
 		argv = [sys.argv[0]],
 		verbosity = 2,
-		#defaultTest = [
+		defaultTest = [
 		#	"ExpressionTests",
 		#	"PhenotypesTests",
 		#	"GeneSetTests",
 		#	"UtilsTests",
-		#	"Data2DTests"
-		#]
+			"Data2DTests"
+		]
 	)
 
 

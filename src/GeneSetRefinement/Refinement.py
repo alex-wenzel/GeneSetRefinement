@@ -508,11 +508,11 @@ class PhenotypeComponentIC(Data2D):
 			"""
 			"""
 			ssgsea_preview = ', '.join(
-				ssgsea_data.data.loc[gene_set_name,:].squeeze()[:10].to_list()
+				list(map(str, ssgsea_data.data.loc[gene_set_name,:].squeeze()[:10].to_list()))
 			)
 
 			phen_preview = ','.join(
-				phen_vec.data.loc[phen_feature_name,:].squeeze()[:10].to_list()
+				list(map(str, phen_vec.data.loc[phen_feature_name,:].squeeze()[:10].to_list()))
 			)
 
 			msg = ""

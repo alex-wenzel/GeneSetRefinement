@@ -503,7 +503,8 @@ class PhenotypeComponentIC(Data2D):
 			phen_vec: Data2DView[Phenotype],
 			gene_set_name: str,
 			phen_name: str,
-			phen_feature_name: str
+			phen_feature_name: str,
+			gene_set: GeneSet
 		) -> None:
 			"""
 			"""
@@ -521,6 +522,7 @@ class PhenotypeComponentIC(Data2D):
 			msg += f"'{phen_feature_name}' from {phen_name}.\n"
 			msg += f"First ten values of ssGSEA vector: {ssgsea_preview}.\n"
 			msg += f"First ten values of phenotype vector: {phen_preview}.\n"
+			msg += f"Gene set: {','.join(gene_set.genes)}\n"
 			msg += f"Exception text:\n{e}"
 
 			super().__init__(msg)
@@ -575,13 +577,20 @@ class PhenotypeComponentIC(Data2D):
 						phen_vec.squeeze()
 					)
 				except Exception as e:
+					# self._component_clusters[k].values()
+
+					k = int(gene_set_name[1])
+					comp_num = int(gene_set_name[3])
+					gene_set = refinement._component_clusters[k][comp_num].gene_set
+					
 					raise cls.PhenCompNumericException(
 						e,
 						one_ssgsea_res,
 						phen_vec,
 						gene_set_name,
 						phen_name,
-						phen_feature_name
+						phen_feature_name,
+						gene_set
 					)
 
 				ic_array[x,y] = ic

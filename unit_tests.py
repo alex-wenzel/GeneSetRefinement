@@ -78,8 +78,6 @@ class ExpressionTests(unittest.TestCase):
 			return_both = False,
 		)
 
-		#self.assertIsInstance(keep, gsr.Expression)
-		#self.assertIsInstance(keep, gsr.Data2DView[gsr.Expression])
 		self.assertIsInstance(keep, gsr.Data2DView)
 		self.assertIsInstance(keep.data2d, gsr.Expression)
 		self.assertEqual(keep.shape[1], 336) # type: ignore
@@ -190,8 +188,6 @@ class RefinementTests(unittest.TestCase):
 	#def setUp(self):
 	@classmethod
 	def setUpClass(cls):
-		#super(RefinementTests).setUpClass()
-
 		depmap_path = sys.argv[1]
 
 		if depmap_path[-1] != '/':
@@ -214,7 +210,6 @@ class RefinementTests(unittest.TestCase):
 
 		cls.paths_d = {
 			"rppa": cls.rppa_path,
-			#"proteomics": cls.proteomics_path
 		}
 
 		cls.gene_set_path = (
@@ -261,29 +256,17 @@ class RefinementTests(unittest.TestCase):
 				r"this A matrix\."
 			)
 		): 
-			#gsr.Data2D.subset(
-			#	self.one_ii.A,
-			#	["CDKN2A", "ERBB2"],
-			#	["asdf", "asfasf"]
-			#)
 			self.one_ii.A.subset(
 				["CDKN2A", "ERBB2"],
 				["asdf", "asfasf"]
 			)
 
 	def test_good_A_matrix_subset(self):
-		#subs_a = gsr.Data2D.subset(
-		#	self.one_ii.A,
-		#	["CDKN2A", "ERBB2"],
-		#	[]
-		#)
 		subs_a = self.one_ii.A.subset(
 			["CDKN2A", "ERBB2"],
 			[]
 		)
 
-		#self.assertIsInstance(subs_a, gsr.A_Matrix)
-		#self.assertIsInstance(subs_a, gsr.Data2DView[gsr.Expression])
 		self.assertIsInstance(subs_a, gsr.Data2DView)
 		self.assertIsInstance(subs_a.data2d, gsr.Expression)
 
@@ -299,11 +282,6 @@ class RefinementTests(unittest.TestCase):
 		)
 
 	def test_W_matrix_good_subset(self):
-		#subs_w = gsr.Data2D.subset(
-		#	self.one_ii.W,
-		#	["CDKN1A", "ERBB2"],
-		#	["0", "2"]
-		#)
 		subs_w = self.one_ii.W.subset(
 			["CDKN1A", "ERBB2"],
 			["0", "2"]
@@ -322,11 +300,6 @@ class RefinementTests(unittest.TestCase):
 				r"this W matrix\."
 			)
 		):
-			#gsr.Data2D.subset(
-			#	self.one_ii.W,
-			#	["CDKN2A", "ERBB2"],
-			#	["asfd", "adfsdf"]
-			#)
 			self.one_ii.W.subset(
 				["CDKN2A", "ERBB2"],
 				["asfd", "adfsdf"]
@@ -412,9 +385,61 @@ class RefinementTests(unittest.TestCase):
 
 		load_obj = gsr.Refinement.load(out_path)
 
-		self.assertEqual(gsr.VERSION, load_obj._version)
+		self.assertEqual(self.ref._version, load_obj._version)
 
 		os.remove(out_path)
+
+	def test_phencomp_exception(self):
+		## This test looks circular but the point is to make sure all the 
+		## parsing in the exception works and doesn't create additional exceptions.
+		e = ValueError("an example error")
+
+		class Fake2D(gsr.Data2D):
+			def __init__(self, data: pd.DataFrame):
+				super().__init__(data)
+			@property
+			def data_name(self) -> str: return "Fake Data"
+			@property
+			def row_title(self) -> str: return "rows"
+			@property
+			def col_title(self) -> str: return "columns"
+		
+		fake_ssgsea_res = gsr.Data2DView(
+			Fake2D(
+				pd.DataFrame({
+					"sample_1": [1, 2, 3], 
+					"sample_2": [3, 4, 5],
+				}, index = ["gene_set_1", "gene_set_2", "gene_set_3"]),
+			), [0, 1, 2], [0, 1]
+		)
+		
+		fake_phen_vec = gsr.Data2DView(
+			Fake2D(
+				pd.DataFrame({
+					"sample_1": [1],
+					"sample_2": [2]
+				}, index = ["phen_1"]),
+			), [0], [0, 1]
+		)
+
+		gene_set_name = "gene_set_1"
+
+		phen_name = "phen_df_1"
+
+		phen_feature_name = "phen_1"
+
+		gene_set = gsr.GeneSet("gene_set_1", ["a", "b", "c", "d"])
+
+		with self.assertRaises(gsr.PhenotypeComponentIC.PhenCompNumericException):
+			raise gsr.PhenotypeComponentIC.PhenCompNumericException(
+				e,
+				fake_ssgsea_res,
+				fake_phen_vec,
+				gene_set_name,
+				phen_name,
+				phen_feature_name,
+				gene_set
+			)
 
 
 class UtilsTests(unittest.TestCase):
@@ -442,7 +467,6 @@ class UtilsTests(unittest.TestCase):
 
 		self.assertEqual(v1_v2_res, -0.2046)
 		self.assertEqual(v1_v1_res, 1.0)
-
 
 class Data2DTests(unittest.TestCase):
 	## Good implementation of Data2D
@@ -701,6 +725,12 @@ class Data2DTests(unittest.TestCase):
 
 		self.assertEqual(joined_subs_col_names, string.ascii_lowercase[::-1])
 
+class VersionTest(unittest.TestCase):
+	def test_version(self):
+		with open("src/GeneSetRefinement/version.py", 'r') as f:
+			text_version = f.readline().strip('\n').split('=')[1].strip()[1:-1]
+
+		self.assertEqual(text_version, gsr.__version___)
 
 if __name__ == "__main__":
 	## https://stackoverflow.com/questions/2812218/
@@ -708,13 +738,14 @@ if __name__ == "__main__":
 	unittest.main(
 		argv = [sys.argv[0]],
 		verbosity = 2,
-		defaultTest = [
+		#defaultTest = [
 		#	"ExpressionTests",
 		#	"PhenotypesTests",
 		#	"GeneSetTests",
 		#	"UtilsTests",
-			"Data2DTests"
-		]
+		#	"Data2DTests",
+		#	"VersionTest"
+		#]
 	)
 
 

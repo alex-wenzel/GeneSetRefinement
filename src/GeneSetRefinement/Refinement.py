@@ -18,7 +18,7 @@ from .Expression import Expression
 from .GeneSet import GeneSet
 from .Phenotypes import Phenotype, Phenotypes
 from .Utils import compute_information_coefficient, run_ssgsea_parallel, ssGSEAResult
-from .version import VERSION
+from .version import __version___
 
 
 class NMFResultMatrix(Data2D):
@@ -372,8 +372,9 @@ class InnerIteration:
 			The `A` matrix containing the gene set genes and the generation 
 			samples. 
 		"""
+		shared_genes = list(set(self._gs.genes).intersection(self._gen_expr.row_names))
 
-		return self._gen_expr.subset(row_names = self._gs.genes)
+		return self._gen_expr.subset(row_names = shared_genes)
 
 
 	@property
@@ -509,11 +510,11 @@ class PhenotypeComponentIC(Data2D):
 			"""
 			"""
 			ssgsea_preview = ', '.join(
-				list(map(str, ssgsea_data.data.loc[gene_set_name,:].squeeze()[:10].to_list()))
+				list(map(str, ssgsea_data.data.loc[gene_set_name,:].squeeze().to_list()[:10]))
 			)
 
 			phen_preview = ','.join(
-				list(map(str, phen_vec.data.loc[phen_feature_name,:].squeeze()[:10].to_list()))
+				list(map(str, phen_vec.data.loc[phen_feature_name,:].squeeze().to_list()[:10]))
 			)
 
 			msg = ""
@@ -580,7 +581,7 @@ class PhenotypeComponentIC(Data2D):
 					# self._component_clusters[k].values()
 
 					k = int(gene_set_name[1])
-					comp_num = int(gene_set_name[3])
+					comp_num = int(gene_set_name[4])
 					gene_set = refinement._component_clusters[k][comp_num].gene_set
 					
 					raise cls.PhenCompNumericException(
@@ -614,7 +615,7 @@ class PhenotypeComponentIC(Data2D):
 
 
 class Refinement:
-	_version = VERSION
+	_version: str = __version___
 
 	_expr_path: str
 	_min_counts: int

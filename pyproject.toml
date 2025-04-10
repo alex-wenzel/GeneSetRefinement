@@ -4,8 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GeneSetRefinement"
-
-version = "1.0.3"
+dynamic = ["version"]
 
 authors = [
 	{name = "Alexander T. Wenzel", email = "atwenzel@ucsd.edu"}
@@ -25,3 +24,6 @@ description = "A Python package implementing Gene Set Refinement."
 readme = "README.md"
 
 requires-python = ">=3.10.0"
+
+[tool.setuptools.dynamic]
+version = {attr = "GeneSetRefinement.__version__"}

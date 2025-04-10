@@ -10,6 +10,7 @@ following files to be present at the directory provided in sys.argv[1]:
 import numpy as np
 import os
 import pandas as pd
+from pathlib import Path
 import string
 import sys
 from typing import Dict
@@ -727,10 +728,11 @@ class Data2DTests(unittest.TestCase):
 
 class VersionTest(unittest.TestCase):
 	def test_version(self):
-		with open("src/GeneSetRefinement/version.py", 'r') as f:
+		#text_version = Path(__file__).with_name("src/GeneSetRefinement/_version.py").read_text().split('=')[-1].strip('\n').strip()[1:-1]
+		with open("src/GeneSetRefinement/_version.py", 'r') as f:
 			text_version = f.readline().strip('\n').split('=')[1].strip()[1:-1]
 
-		self.assertEqual(text_version, gsr.__version___)
+		self.assertEqual(text_version, gsr.__version__)
 
 if __name__ == "__main__":
 	## https://stackoverflow.com/questions/2812218/

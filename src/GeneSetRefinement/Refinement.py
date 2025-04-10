@@ -4,6 +4,7 @@ Object containing refinement results and functions that implement the workflow.
 
 from abc import abstractmethod
 from datetime import datetime
+from  importlib import metadata
 import numpy as np
 import pandas as pd
 import pickle
@@ -18,7 +19,7 @@ from .Expression import Expression
 from .GeneSet import GeneSet
 from .Phenotypes import Phenotype, Phenotypes
 from .Utils import compute_information_coefficient, run_ssgsea_parallel, ssGSEAResult
-from .version import __version___
+from ._version import __version__
 
 
 class NMFResultMatrix(Data2D):
@@ -615,7 +616,7 @@ class PhenotypeComponentIC(Data2D):
 
 
 class Refinement:
-	_version: str = __version___
+	_version: str = __version__
 
 	_expr_path: str
 	_min_counts: int

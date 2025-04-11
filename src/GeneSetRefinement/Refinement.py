@@ -511,11 +511,11 @@ class PhenotypeComponentIC(Data2D):
 			"""
 			"""
 			ssgsea_preview = ', '.join(
-				list(map(str, ssgsea_data.data.loc[gene_set_name,:].squeeze().to_list()[:10]))
+				list(map(str, ssgsea_data.data.loc[gene_set_name,:].squeeze().to_list()[:10])) #type: ignore
 			)
 
 			phen_preview = ','.join(
-				list(map(str, phen_vec.data.loc[phen_feature_name,:].squeeze().to_list()[:10]))
+				list(map(str, phen_vec.data.loc[phen_feature_name,:].squeeze().to_list()[:10])) #type: ignore
 			)
 
 			msg = ""
@@ -576,7 +576,8 @@ class PhenotypeComponentIC(Data2D):
 				try:
 					ic = compute_information_coefficient(
 						one_ssgsea_res.squeeze(),
-						phen_vec.squeeze()
+						phen_vec.squeeze(),
+						raise_if_failed = False
 					)
 				except Exception as e:
 					# self._component_clusters[k].values()

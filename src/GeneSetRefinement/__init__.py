@@ -6,6 +6,6 @@ from .GeneSet import GeneSet, read_gmt
 from .Phenotypes import Phenotypes
 from .Refinement import (
 	Refinement, InnerIteration, CombinedGeneComponentIC, 
-	PhenotypeComponentIC
+	PhenotypeComponentIC, ssGSEAResult, Phenotype
 )
 from .Utils import load_gct, compute_information_coefficient

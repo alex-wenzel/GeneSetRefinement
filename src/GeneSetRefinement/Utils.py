@@ -9,7 +9,7 @@ import pandas as pd
 from scipy.signal import convolve2d
 from scipy.sparse import coo_matrix
 from scipy.stats import gaussian_kde, pearsonr
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, List, Literal, Optional, overload, Tuple, Type, TypeVar
 import warnings
 
 from .Data2D import Data2D
@@ -67,6 +67,11 @@ def _drop_nan_columns(
 	`list` of Numpy array
 		Each of the arrays in `arrays` with NaN values removed. 
 	"""
+	if len(arrays[0]) != len(arrays[1]):
+		raise ValueError(
+			f"Got arrays of unequal lengths {len(arrays[0])} and {len(arrays[1])}."
+		)
+
 	try:
 		not_nan_filter = np.ones(len(arrays[0]), dtype = bool)
 
@@ -286,14 +291,63 @@ def _fastkde(
 	return grid, (xmin, xmax, ymin, ymax)
 
 
+def _raise_if_failed(
+	raise_if_failed: bool,
+	exc: Exception
+) -> None:
+	"""
+	Uses the `raise_if_failed` value from `compute_information_coefficient()`
+	to determine if returning None or raising an exception.
+	"""
+	if raise_if_failed:
+		raise exc
+	
+	return None
+
+
+@overload
 def compute_information_coefficient(
 	x: List[float],
 	y: List[float],
 	n_grids: int = 25,
 	jitter: float = 1e-10,
 	random_seed: float = 20121020,
-	fft: bool = True
+	fft: bool = True,
+	raise_if_failed: Literal[True] = True
 ) -> float:
+	...
+@overload
+def compute_information_coefficient(
+	x: List[float],
+	y: List[float],
+	n_grids: int = 25,
+	jitter: float = 1e-10,
+	random_seed: float = 20121020,
+	fft: bool = True,
+	*, ## https://stackoverflow.com/questions/59359943/how-to-write-typing-overload-decorator-for-bool-arguments-by-value
+	raise_if_failed: Literal[False]
+) -> Optional[float]:
+	...
+@overload ## https://stackoverflow.com/questions/59359943/how-to-write-typing-overload-decorator-for-bool-arguments-by-value
+def compute_information_coefficient(
+	x: List[float],
+	y: List[float],
+	n_grids: int,
+	jitter: float,
+	random_seed: float,
+	fft: bool,
+	raise_if_failed: Literal[False]
+) -> Optional[float]:
+	...
+def compute_information_coefficient(
+	x: List[float],
+	y: List[float],
+	n_grids: int = 25,
+	jitter: float = 1e-10,
+	random_seed: float = 20121020,
+	fft: bool = True,
+	raise_if_failed: bool = True
+) -> Optional[float]:
 	"""
 	Implementation of the information coefficient based on the CCAL(noir)
 	implementation by Kwat Medetgul-Ernar and Edwin Juarez. See
@@ -323,90 +377,129 @@ def compute_information_coefficient(
 		https://github.com/mfouesneau/faststats/blob/master/faststats/fastkde.py 
 		otherwise scipy's `gaussian_kde()`. 
 
+	`raise_if_failed` : default `True`
+		If invalid values are encountered, the appropriate exception will be
+		raised if `True`, otherwise the function will silently return `None`.
+
 	Returns
 	-------
 	`float`
 		The information coefficient, bounded between `-1.0` and `1.0`. 
 	"""
-	x_arr, y_arr = _drop_nan_columns([np.asarray(x), np.asarray(y)])
+	x_arr = np.asarray(x, dtype = float)
+	y_arr = np.asarray(y, dtype = float)
+
+	#try:
+	#	# Need at least 3 values to compute bandwidth
+	#	if len(x_arr) < 3 or len(y_arr) < 3:
+	#		return 0.0
+	#except TypeError:
+	#	# If x and y are numbers, we cannot continue and IC is zero.
+	#	return 0.0
+
+	#if len(x_arr) != len(y_arr):
+	#	return _raise_if_failed(
+	#		raise_if_failed, 
+	#		ValueError(f"x and y not equal length, got {len(x)} and {len(y)}.")
+	#	)
+
+	try:
+		x_arr, y_arr = _drop_nan_columns([x_arr, y_arr])
+	except ValueError as e:
+		return _raise_if_failed(raise_if_failed, e)
+	
+	## This should always be true because of how _drop_nan_columns works, but checking just in case. 
+	## Unhandled assertion because this being false means there are issues in _drop_nan_columns or elsewhere
+	## in case of any future refactoring. 
+	assert len(x_arr) == len(y_arr)
+	
+	if len(x_arr) < 3:
+		return _raise_if_failed(
+			raise_if_failed,
+			ValueError(f"x and y must have at least three elements, got {len(x)} and {len(y)}.")
+		)
+
+	#x_arr = np.asarray(x, dtype = float)
+	#y_arr = np.asarray(y, dtype = float)
 
 	if (x_arr == y_arr).all():
 		return 1.0
+
+	# Add jitter
+	seed(random_seed)
+	x_arr += random_sample(x_arr.size) * jitter
+	y_arr += random_sample(y_arr.size) * jitter
+
+	# Compute bandwidths
+	#try:
+	#	pearson_res = pearsonr(x, y)
+	#except ValueError as e:
+	#	if raise_if_failed:
+	#		raise e
+	#	else:
+	#		return None
+
+	try:
+		pearson_res = pearsonr(x_arr, y_arr)
+	except ValueError as e:
+		return _raise_if_failed(raise_if_failed, e)
+		
+	cor = pearson_res.correlation
+
+	if fft:
+		# Compute the PDF
+		fxy = _fastkde(
+			x_arr.tolist(),
+			y_arr.tolist(),
+			gridsize = (n_grids, n_grids)
+		)[0] + EPS
+
+		if fxy.shape[1] != n_grids:
+			n_grids = fxy.shape[1]
+
 	else:
-		try:
-			# Need at least 3 values to compute bandwidth
-			if len(x_arr) < 3 or len(y_arr) < 3:
-				return 0.0
-		except TypeError:
-			# If x and y are numbers, we cannot continue and IC is zero.
-			return 0.0
+		# Estimate fxy using scipy.stats.gaussian_kde()
+		xmin = float(x_arr.min())
+		xmax = float(x_arr.max())
+		ymin = float(y_arr.min())
+		ymax = float(y_arr.max())
 
-		x_arr = np.asarray(x, dtype = float)
-		y_arr = np.asarray(y, dtype = float)
+		X, Y = np.mgrid[
+			xmin:xmax:complex(0, n_grids), 
+			ymin:ymax:complex(0, n_grids)
+		]
 
-		# Add jitter
-		seed(random_seed)
-		x_arr += random_sample(x_arr.size) * jitter
-		y_arr += random_sample(y_arr.size) * jitter
+		positions = np.vstack([X.ravel(), Y.ravel()])
+		values = np.vstack([x_arr, y_arr])
+		kernel = gaussian_kde(values)
+		fxy = np.reshape(kernel(positions).T, X.shape) + EPS
 
-		# Compute bandwidths
-		pearson_res = pearsonr(x, y)
-		cor = pearson_res.correlation
+	dx = (x_arr.max() - x_arr.min()) / (n_grids - 1)
+	dy = (y_arr.max() - y_arr.min()) / (n_grids - 1)
+	pxy = fxy / (fxy.sum() * dx * dy)
+	px = pxy.sum(axis = 1) * dy
+	py = pxy.sum(axis = 0) * dx
 
-		if fft:
-			# Compute the PDF
-			fxy = _fastkde(
-				x_arr.tolist(),
-				y_arr.tolist(),
-				gridsize = (n_grids, n_grids)
-			)[0] + EPS
+	# Compute mutual information
+	with warnings.catch_warnings():
+		warnings.simplefilter("ignore")
 
-			if fxy.shape[1] != n_grids:
-				n_grids = fxy.shape[1]
+		mi = (
+			pxy * np.log(
+				pxy / ((
+					np.asarray([px] * n_grids).T
+					* np.asarray([py] * n_grids)
+				))
+			)
+		).sum() * dx * dy 
 
-		else:
-			# Estimate fxy using scipy.stats.gaussian_kde()
-			xmin = float(x_arr.min())
-			xmax = float(x_arr.max())
-			ymin = float(y_arr.min())
-			ymax = float(y_arr.max())
+	# Compute information coefficient
+	ic = np.sign(cor) * np.sqrt(1 - np.exp(-2 * mi))
 
-			X, Y = np.mgrid[
-				xmin:xmax:complex(0, n_grids), 
-				ymin:ymax:complex(0, n_grids)
-			]
+	if np.isnan(ic):
+		ic = 0.0
 
-			positions = np.vstack([X.ravel(), Y.ravel()])
-			values = np.vstack([x, y])
-			kernel = gaussian_kde(values)
-			fxy = np.reshape(kernel(positions).T, X.shape) + EPS
-
-		dx = (x_arr.max() - x_arr.min()) / (n_grids - 1)
-		dy = (y_arr.max() - y_arr.min()) / (n_grids - 1)
-		pxy = fxy / (fxy.sum() * dx * dy)
-		px = pxy.sum(axis = 1) * dy
-		py = pxy.sum(axis = 0) * dx
-
-		# Compute mutual information
-		with warnings.catch_warnings():
-			warnings.simplefilter("ignore")
-
-			mi = (
-				pxy * np.log(
-					pxy / ((
-						np.asarray([px] * n_grids).T
-						* np.asarray([py] * n_grids)
-					))
-				)
-			).sum() * dx * dy 
-
-		# Compute information coefficient
-		ic = np.sign(cor) * np.sqrt(1 - np.exp(-2 * mi))
-
-		if np.isnan(ic):
-			ic = 0.0
-
-		return ic
+	return ic
 
 
 ## ssGSEA

@@ -395,18 +395,18 @@ class RefinementTests(unittest.TestCase):
 		## parsing in the exception works and doesn't create additional exceptions.
 		e = ValueError("an example error")
 
-		class Fake2D(gsr.Data2D):
-			def __init__(self, data: pd.DataFrame):
-				super().__init__(data)
-			@property
-			def data_name(self) -> str: return "Fake Data"
-			@property
-			def row_title(self) -> str: return "rows"
-			@property
-			def col_title(self) -> str: return "columns"
+		#class Fake2D(gsr.Data2D):
+		#	def __init__(self, data: pd.DataFrame):
+		#		super().__init__(data)
+		#	@property
+		#	def data_name(self) -> str: return "Fake Data"
+		#	@property
+		#	def row_title(self) -> str: return "rows"
+		#	@property
+		#	def col_title(self) -> str: return "columns"
 		
 		fake_ssgsea_res = gsr.Data2DView(
-			Fake2D(
+			gsr.ssGSEAResult(
 				pd.DataFrame({
 					"sample_1": [1, 2, 3], 
 					"sample_2": [3, 4, 5],
@@ -415,11 +415,12 @@ class RefinementTests(unittest.TestCase):
 		)
 		
 		fake_phen_vec = gsr.Data2DView(
-			Fake2D(
+			gsr.Phenotype(
 				pd.DataFrame({
 					"sample_1": [1],
 					"sample_2": [2]
 				}, index = ["phen_1"]),
+				phen_name = "test_phen"
 			), [0], [0, 1]
 		)
 
@@ -468,6 +469,56 @@ class UtilsTests(unittest.TestCase):
 
 		self.assertEqual(v1_v2_res, -0.2046)
 		self.assertEqual(v1_v1_res, 1.0)
+
+	def test_compute_information_coefficient_exceptions(self):
+		rng = np.random.default_rng(49)
+
+		## bad lengths
+		vec1 = [round(rng.random(), ndigits = 2) for _ in range(10)]
+		vec2 = [round(rng.random(), ndigits = 2) for _ in range(11)]
+
+		with self.assertRaisesRegex(ValueError, ".*equal length.*"):
+			gsr.compute_information_coefficient(vec1, vec2)
+
+		self.assertIsNone(
+			gsr.compute_information_coefficient(vec1, vec2, raise_if_failed = False)
+		)
+
+		## too short
+
+		vec1 = [round(rng.random(), ndigits = 2) for _ in range(2)]
+		vec2 = [round(rng.random(), ndigits = 2) for _ in range(2)]
+
+		with self.assertRaisesRegex(ValueError, ".*must have at least three.*"):
+			gsr.compute_information_coefficient(vec1, vec2)
+
+		self.assertIsNone(
+			gsr.compute_information_coefficient(vec1, vec2, raise_if_failed = False)
+		)
+
+	def test_compute_information_coefficient_nans(self):
+		rng = np.random.default_rng(49)
+
+		vec1 = [round(rng.random(), ndigits = 2) for _ in range(10)]
+		vec2 = [round(rng.random(), ndigits = 2) for _ in range(10)]
+
+		vec1[6] = np.nan
+		vec1[8] = np.nan
+
+		vec2[5] = np.nan
+		vec2[7] = np.nan
+
+		self.assertIsInstance(
+			gsr.compute_information_coefficient(vec1, vec2),
+			float
+		)
+
+		for i in range(8):
+			vec2[i] = np.nan
+
+		with self.assertRaisesRegex(ValueError, ".*must have at least three.*"):
+			gsr.compute_information_coefficient(vec1, vec2)
+
 
 class Data2DTests(unittest.TestCase):
 	## Good implementation of Data2D
@@ -744,6 +795,7 @@ if __name__ == "__main__":
 		#	"ExpressionTests",
 		#	"PhenotypesTests",
 		#	"GeneSetTests",
+		#	"RefinementTests",
 		#	"UtilsTests",
 		#	"Data2DTests",
 		#	"VersionTest"

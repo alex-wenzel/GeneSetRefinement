@@ -134,7 +134,7 @@ class Phenotypes:
 			))
 
 		try:
-			phen_vec = pd.Series(phen_df.data.loc[phen_name,:])
+			phen_vec = pd.Series(phen_df.data.loc[phen_name,:]) #type: ignore
 		except KeyError:
 			raise KeyError((
 				f"Phenotype '{phen_name}' not found in table '{table_name}'."

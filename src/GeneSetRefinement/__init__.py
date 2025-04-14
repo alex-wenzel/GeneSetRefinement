@@ -1,5 +1,4 @@
-from pathlib import Path
-__version__ = Path(__file__).with_name("_version.py").read_text().split('=')[-1].strip('\n').strip()[1:-1]
+__version__ = "1.1.0"
 from .Data2D import Data2D, Data2DView
 from .Expression import Expression
 from .GeneSet import GeneSet, read_gmt

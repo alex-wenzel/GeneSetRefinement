@@ -19,7 +19,9 @@ from .Expression import Expression
 from .GeneSet import GeneSet
 from .Phenotypes import Phenotype, Phenotypes
 from .Utils import compute_information_coefficient, run_ssgsea_parallel, ssGSEAResult
-from ._version import __version__
+#from ._version import __version__
+from pathlib import Path
+__version__ = Path(__file__).with_name("__init__.py").read_text().split('=')[-1].strip('\n').strip()[1:-1]
 
 
 class NMFResultMatrix(Data2D):

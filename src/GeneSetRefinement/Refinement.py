@@ -970,6 +970,44 @@ class Refinement:
 			raise cls.RefinementVersionWarning(cls._version, obj._version)
 
 		return obj
+	
+	def to_gmt(
+		self,
+		out_path: str
+	) -> None:
+		"""
+		Creates a GMT with the original gene set followed by each of the
+		component gene sets. Will not run if refinement hasn't been run. 
+
+		Parameters
+		----------
+		`out_path` : `str`
+			The path to use for writing the new GMT
+		"""
+		gmt_rows_l: List[str] = []
+
+		for k in self._ks:
+			for comp_num in range(k):
+				try:
+					k_gs = self._component_clusters[k][comp_num].gene_set
+				except AttributeError:
+					raise RuntimeError((
+						f"No refined gene sets found. Has refinement been run?"
+					))
+				except KeyError:
+					raise RuntimeError((
+						f"Couldn't find gene set for k = {k} "
+						f"component {comp_num}. Has refinement been run?"
+					))
+				
+				gmt_rows_l.append(k_gs.to_gmt_row())
+
+		orig_gmt_row = self._gs.to_gmt_row()
+
+		out_data = '\n'.join([orig_gmt_row] + gmt_rows_l)
+
+		with open(out_path, 'w') as f:
+			f.write(out_data)
 
 	@property
 	def iterations(self) -> Dict[int, List[List[InnerIteration]]]:

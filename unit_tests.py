@@ -175,6 +175,22 @@ class GeneSetTests(unittest.TestCase):
 
 		self.assertIn("ADCY4", gs_d["REACTOME_SIGNALING_BY_ERBB2_v6.0"].genes)
 
+	def test_to_gmt_row(self):
+		gs = gsr.GeneSet("a_gene_set", ["a", "b", "c", "d"])
+
+		gmt_row_desc = gs.to_gmt_row(description = "about_a_gene_set")
+		gmt_row_no_desc = gs.to_gmt_row()
+
+		self.assertEqual(
+			gmt_row_desc,
+			"a_gene_set\tabout_a_gene_set\ta\tb\tc\td"
+		)
+
+		self.assertEqual(
+			gmt_row_no_desc,
+			"a_gene_set\ta_gene_set\ta\tb\tc\td"
+		)
+
 
 class RefinementTests(unittest.TestCase):
 	expression_path: str
@@ -394,16 +410,6 @@ class RefinementTests(unittest.TestCase):
 		## This test looks circular but the point is to make sure all the 
 		## parsing in the exception works and doesn't create additional exceptions.
 		e = ValueError("an example error")
-
-		#class Fake2D(gsr.Data2D):
-		#	def __init__(self, data: pd.DataFrame):
-		#		super().__init__(data)
-		#	@property
-		#	def data_name(self) -> str: return "Fake Data"
-		#	@property
-		#	def row_title(self) -> str: return "rows"
-		#	@property
-		#	def col_title(self) -> str: return "columns"
 		
 		fake_ssgsea_res = gsr.Data2DView(
 			gsr.ssGSEAResult(
@@ -442,6 +448,28 @@ class RefinementTests(unittest.TestCase):
 				phen_feature_name,
 				gene_set
 			)
+		
+	def test_to_gmt(self):
+		never_run_ref = gsr.Refinement(
+			self.expression_path,
+			self.paths_d,
+			self.gene_set_path,
+			"REACTOME_SIGNALING_BY_ERBB2_v6.0",
+			[2, 3],
+			n_outer_iterations=2,
+			n_inner_iterations=2,
+			verbose = True
+		)
+
+		with self.assertRaisesRegex(
+			RuntimeError,
+			".*Has refinement been run?"
+		):
+			never_run_ref.to_gmt("never_write_me.gmt")
+
+		self.ref.to_gmt("_test_write_out.gmt")
+		gsr.read_gmt("_test_write_out.gmt")
+		os.remove("_test_write_out.gmt")
 
 
 class UtilsTests(unittest.TestCase):
@@ -777,6 +805,7 @@ class Data2DTests(unittest.TestCase):
 
 		self.assertEqual(joined_subs_col_names, string.ascii_lowercase[::-1])
 
+
 class VersionTest(unittest.TestCase):
 	def test_version(self):
 		#text_version = Path(__file__).with_name("src/GeneSetRefinement/_version.py").read_text().split('=')[-1].strip('\n').strip()[1:-1]
@@ -784,6 +813,7 @@ class VersionTest(unittest.TestCase):
 			text_version = f.readline().strip('\n').split('=')[1].strip()[1:-1]
 
 		self.assertEqual(text_version, gsr.__version__)
+
 
 if __name__ == "__main__":
 	## https://stackoverflow.com/questions/2812218/

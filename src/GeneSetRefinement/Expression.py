@@ -7,8 +7,9 @@ from gp.data import GCT
 import numpy as np
 import pandas as pd
 from typing import List, Literal, Optional, Tuple, TypeVar, overload, Union
+from typing_extensions import Self
 
-from .Data2D import Data2D
+from .Data2D import Data2D, Data2DView
 from .Utils import load_gct
 
 
@@ -16,17 +17,11 @@ class Expression(Data2D):
 	"""
 	Expression matrix representation. Loads from a GCT. 
 	"""
-	_min_counts: int
-
 	def __init__(
 		self,
 		data: pd.DataFrame,
-		min_counts: int
 	) -> None:
 		super().__init__(data)
-		self._min_counts = min_counts
-
-		self._data = self._data.loc[self._data.sum(axis = 1) > min_counts,:]
 
 	@classmethod
 	def from_gct(
@@ -53,7 +48,9 @@ class Expression(Data2D):
 		"""
 		data = load_gct(gct_path)
 
-		return cls(data, min_counts)
+		data = data.loc[data.sum(axis = 1) > min_counts, :]
+
+		return cls(data)
 
 	@property
 	def data_name(self) -> str: return "gene expression matrix"
@@ -64,10 +61,7 @@ class Expression(Data2D):
 	@property
 	def col_title(self) -> str: return "sample"
 
-	@property
-	def array(self) -> np.ndarray:
-		return self._data.to_numpy()
-
+	"""
 	@property
 	def gene_names(self) -> List[str]:
 		return self.row_names
@@ -75,6 +69,7 @@ class Expression(Data2D):
 	@property
 	def sample_names(self) -> List[str]:
 		return self.col_names
+	"""
 
 	@property
 	def n_genes(self) -> int:
@@ -84,13 +79,11 @@ class Expression(Data2D):
 	def n_samples(self) -> int:
 		return self._data.shape[1]
 
-	@property
-	def min_counts(self) -> int:
-		return self._min_counts
+	#@property
+	#def min_counts(self) -> int:
+	#	return self._min_counts
 
-	def has_zero_row(self) -> bool:
-		return min(self._data.sum(axis = 1)) == 0
-
+	"""
 	@overload
 	def subset_random_samples(
 		self,
@@ -99,7 +92,7 @@ class Expression(Data2D):
 		return_both: Literal[False],
 		no_zero_rows: bool = True,
 		max_tries: int = 100
-	) -> "Expression": ...
+	) -> "Data2DView[Self]": ...
 	@overload
 	def subset_random_samples(
 		self,
@@ -108,7 +101,7 @@ class Expression(Data2D):
 		return_both: Literal[True],
 		no_zero_rows: bool = True,
 		max_tries: int = 100
-	) -> Tuple["Expression", "Expression"]: ...
+	) -> "Tuple[Data2DView[Self], Data2DView[Self]]": ...
 	def subset_random_samples(
 		self,
 		frac: float,
@@ -116,8 +109,8 @@ class Expression(Data2D):
 		return_both: bool = False,
 		no_zero_rows: bool = True,
 		max_tries: int = 100
-	) -> "Expression" | Tuple["Expression", "Expression"]:
-		"""
+	) -> "Data2DView[Self] | Tuple[Data2DView[Self], Data2DView[Self]]":
+		###
 		Returns either one or two `Expression` objects containing randomly
 		subset samples. One object will have (`frac` * #columns) samples, 
 		the other optional object will have (`1 - frac` * #columns) samples. 
@@ -145,7 +138,7 @@ class Expression(Data2D):
 			If `no_zero_rows` is `True`, the number of attempts at generating
 			a compliant random subset until an error is thrown. This parameter
 			is not used if `no_zero_rows` is `False`. 
-		"""
+		###
 		if (frac < 0.0) or (frac > 1.0):
 			raise ValueError(
 				"Fraction of Expression sampled must be between 0 and 1"
@@ -164,23 +157,26 @@ class Expression(Data2D):
 		while True:
 			## Choose columns for 'keep' matrix
 			keep_cols = rng.choice(
-				self.sample_names,
+				self.col_names,
 				size = n_to_choose,
 				replace = False
 			).tolist()
 
 			## Build keep and discard matrices
 			disc_cols = [
-				col for col in self.sample_names
+				col for col in self.col_names
 				if col not in keep_cols
 			]
 
-			keep = Data2D.subset(self, self.gene_names, keep_cols)
-			disc = Data2D.subset(self, self.gene_names, disc_cols)
+			#keep = Data2D.subset(self, self.gene_names, keep_cols)
+			#disc = Data2D.subset(self, self.gene_names, disc_cols)
+
+			keep = self.subset(self.row_names, keep_cols)
+			disc = self.subset(self.row_names, disc_cols)
 
 			if no_zero_rows:
-				keep_has_zero_row = keep.has_zero_row()
-				disc_has_zero_row = disc.has_zero_row()
+				keep_has_zero_row = keep.data2d.has_zero_row()
+				disc_has_zero_row = disc.data2d.has_zero_row()
 
 				if (not keep_has_zero_row) and (not disc_has_zero_row):
 					break
@@ -200,6 +196,7 @@ class Expression(Data2D):
 			return keep, disc
 		else:
 			return keep
+	"""
 
 	def normalize(self) -> None:
 		"""
@@ -221,8 +218,6 @@ class Expression(Data2D):
 
 		self._data = 10000 * (self._data - expr_min) / min_max_diff
 
-
-#e = Expression(pd.DataFrame({}), 5)
 
 
 

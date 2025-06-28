@@ -3,7 +3,7 @@ Representation of a gene set with parsing functions from lists and GMTs
 """
 
 import pandas as pd
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 def read_gmt(
@@ -93,6 +93,32 @@ class GeneSet:
 			gs_name: cls(gs_name, gs_d[gs_name])
 			for gs_name in gs_d.keys()
 		}
+	
+	def to_gmt_row(
+		self,
+		description: Optional[str] = None
+	) -> str:
+		"""
+		Returns a string representing a single row of a GMT file. 
+		This DOES NOT include a newline. 
+
+		Parameters
+		----------
+		`description` : `str`
+			Value to use in the second column of the GMT. If not provided,
+			the gene set name will be used, i.e., the first and second column
+			will have the same values. 
+
+		Returns
+		-------
+		`str`
+			The full row of the gene set's representation in GMT format, 
+			without a newline. 
+		"""
+		if description is None:
+			description = self.name
+
+		return '\t'.join([self.name, description] + self.genes)
 
 	@property
 	def name(self) -> str: return self._name

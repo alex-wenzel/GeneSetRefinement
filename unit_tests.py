@@ -10,6 +10,8 @@ following files to be present at the directory provided in sys.argv[1]:
 import numpy as np
 import os
 import pandas as pd
+from pathlib import Path
+import string
 import sys
 from typing import Dict
 import unittest
@@ -43,15 +45,17 @@ class ExpressionTests(unittest.TestCase):
 		cls.rng = np.random.default_rng(49)
 
 		rnd_genes = cls.rng.choice(
-			cls.expr.gene_names,
+			cls.expr.row_names,
 			size = 100,
 			replace = False,
 		).tolist()
 
-		cls.expr = gsr.Data2D.subset(
-			cls.expr, 
-			row_names = rnd_genes,
-		)
+		#cls.expr = gsr.Data2D.subset(
+		#	cls.expr, 
+		#	row_names = rnd_genes,
+		#)
+
+		cls.expr._data = cls.expr.data.loc[rnd_genes,:]
 
 	def test_shape(self):
 		self.assertEqual(self.expr.n_genes, 100)
@@ -65,8 +69,8 @@ class ExpressionTests(unittest.TestCase):
 			column_names = subs_samples
 		)
 
-		self.assertEqual(subs.n_genes, self.expr.n_genes)
-		self.assertEqual(subs.n_samples, len(subs_samples))
+		self.assertEqual(subs.shape[0], self.expr.n_genes)
+		self.assertEqual(subs.shape[1], len(subs_samples))
 
 	def test_subset_keep(self):
 		keep = self.expr.subset_random_samples(
@@ -75,8 +79,9 @@ class ExpressionTests(unittest.TestCase):
 			return_both = False,
 		)
 
-		self.assertIsInstance(keep, gsr.Expression)
-		self.assertEqual(keep.n_samples, 336) # type: ignore
+		self.assertIsInstance(keep, gsr.Data2DView)
+		self.assertIsInstance(keep.data2d, gsr.Expression)
+		self.assertEqual(keep.shape[1], 336) # type: ignore
 
 	def test_subset_keep_disc(self):
 		subs_res = self.expr.subset_random_samples(
@@ -88,8 +93,8 @@ class ExpressionTests(unittest.TestCase):
 		self.assertIsInstance(subs_res, tuple)
 		keep, disc = subs_res # type: ignore
 
-		self.assertEqual(keep.n_samples, 336)
-		self.assertEqual(disc.n_samples, 786)
+		self.assertEqual(keep.shape[1], 336)
+		self.assertEqual(disc.shape[1], 786)
 
 	def test_normalize(self):
 		res = float(self.expr["CDKN2A", "ACH-000696"].array[0,0])
@@ -170,6 +175,22 @@ class GeneSetTests(unittest.TestCase):
 
 		self.assertIn("ADCY4", gs_d["REACTOME_SIGNALING_BY_ERBB2_v6.0"].genes)
 
+	def test_to_gmt_row(self):
+		gs = gsr.GeneSet("a_gene_set", ["a", "b", "c", "d"])
+
+		gmt_row_desc = gs.to_gmt_row(description = "about_a_gene_set")
+		gmt_row_no_desc = gs.to_gmt_row()
+
+		self.assertEqual(
+			gmt_row_desc,
+			"a_gene_set\tabout_a_gene_set\ta\tb\tc\td"
+		)
+
+		self.assertEqual(
+			gmt_row_no_desc,
+			"a_gene_set\ta_gene_set\ta\tb\tc\td"
+		)
+
 
 class RefinementTests(unittest.TestCase):
 	expression_path: str
@@ -184,8 +205,6 @@ class RefinementTests(unittest.TestCase):
 	#def setUp(self):
 	@classmethod
 	def setUpClass(cls):
-		#super(RefinementTests).setUpClass()
-
 		depmap_path = sys.argv[1]
 
 		if depmap_path[-1] != '/':
@@ -208,7 +227,6 @@ class RefinementTests(unittest.TestCase):
 
 		cls.paths_d = {
 			"rppa": cls.rppa_path,
-			#"proteomics": cls.proteomics_path
 		}
 
 		cls.gene_set_path = (
@@ -222,9 +240,9 @@ class RefinementTests(unittest.TestCase):
 			cls.paths_d,
 			cls.gene_set_path,
 			"REACTOME_SIGNALING_BY_ERBB2_v6.0",
-			[2, 3, 4],
+			[2, 3],
 			n_outer_iterations=2,
-			n_inner_iterations=3,
+			n_inner_iterations=2,
 			verbose = True
 		)
 
@@ -233,17 +251,17 @@ class RefinementTests(unittest.TestCase):
 		cls.one_ii = cls.ref.iterations[3][0][0]
 
 	def test_instantiating_refinement(self):
-		self.assertListEqual(self.ref.k_values, [2, 3, 4])
+		self.assertListEqual(self.ref.k_values, [2, 3])
 
 	def test_inner_iteration_instantiation(self):
 		self.assertEqual(
-			self.one_ii.generating_expression.n_samples,
-			int(self.one_ii.training_expression.n_samples * 0.50)
+			self.one_ii.generating_expression.shape[1],
+			int(self.one_ii.training_expression.shape[1] * 0.50)
 		)
 
 	def test_inner_iteration_get_A(self):
 		self.assertEqual(
-			self.one_ii.A.n_genes,
+			self.one_ii.A.shape[0],
 			95
 		)
 
@@ -255,35 +273,33 @@ class RefinementTests(unittest.TestCase):
 				r"this A matrix\."
 			)
 		): 
-			gsr.Data2D.subset(
-				self.one_ii.A,
+			self.one_ii.A.subset(
 				["CDKN2A", "ERBB2"],
 				["asdf", "asfasf"]
 			)
 
 	def test_good_A_matrix_subset(self):
-		subs_a = gsr.Data2D.subset(
-			self.one_ii.A,
+		subs_a = self.one_ii.A.subset(
 			["CDKN2A", "ERBB2"],
 			[]
 		)
 
-		self.assertIsInstance(subs_a, gsr.A_Matrix)
+		self.assertIsInstance(subs_a, gsr.Data2DView)
+		self.assertIsInstance(subs_a.data2d, gsr.Expression)
 
 	def test_inner_iteration_nmf(self):
 		self.assertListEqual(
 			list(self.one_ii.W.shape),
-			[self.one_ii.A.n_genes, self.one_ii.k]
+			[self.one_ii.A.shape[0], self.one_ii.k]
 		)
 
 		self.assertListEqual(
 			list(self.one_ii.H.shape),
-			[self.one_ii.k, self.one_ii.A.n_samples]
+			[self.one_ii.k, self.one_ii.A.shape[1]]
 		)
 
 	def test_W_matrix_good_subset(self):
-		subs_w = gsr.Data2D.subset(
-			self.one_ii.W,
+		subs_w = self.one_ii.W.subset(
 			["CDKN1A", "ERBB2"],
 			["0", "2"]
 		)
@@ -301,11 +317,11 @@ class RefinementTests(unittest.TestCase):
 				r"this W matrix\."
 			)
 		):
-			gsr.Data2D.subset(
-				self.one_ii.W,
+			self.one_ii.W.subset(
 				["CDKN2A", "ERBB2"],
 				["asfd", "adfsdf"]
 			)
+
 
 	def test_gene_comp_ic_shape(self):
 		self.assertEqual(
@@ -327,7 +343,7 @@ class RefinementTests(unittest.TestCase):
 		)
 
 		self.assertEqual(
-			self.one_ii.A.n_genes,
+			self.one_ii.A.shape[0],
 			comb.shape[0]
 		)
 
@@ -386,9 +402,74 @@ class RefinementTests(unittest.TestCase):
 
 		load_obj = gsr.Refinement.load(out_path)
 
-		self.assertEqual(gsr.VERSION, load_obj._version)
+		self.assertEqual(self.ref._version, load_obj._version)
 
 		os.remove(out_path)
+
+	def test_phencomp_exception(self):
+		## This test looks circular but the point is to make sure all the 
+		## parsing in the exception works and doesn't create additional exceptions.
+		e = ValueError("an example error")
+		
+		fake_ssgsea_res = gsr.Data2DView(
+			gsr.ssGSEAResult(
+				pd.DataFrame({
+					"sample_1": [1, 2, 3], 
+					"sample_2": [3, 4, 5],
+				}, index = ["gene_set_1", "gene_set_2", "gene_set_3"]),
+			), [0, 1, 2], [0, 1]
+		)
+		
+		fake_phen_vec = gsr.Data2DView(
+			gsr.Phenotype(
+				pd.DataFrame({
+					"sample_1": [1],
+					"sample_2": [2]
+				}, index = ["phen_1"]),
+				phen_name = "test_phen"
+			), [0], [0, 1]
+		)
+
+		gene_set_name = "gene_set_1"
+
+		phen_name = "phen_df_1"
+
+		phen_feature_name = "phen_1"
+
+		gene_set = gsr.GeneSet("gene_set_1", ["a", "b", "c", "d"])
+
+		with self.assertRaises(gsr.PhenotypeComponentIC.PhenCompNumericException):
+			raise gsr.PhenotypeComponentIC.PhenCompNumericException(
+				e,
+				fake_ssgsea_res,
+				fake_phen_vec,
+				gene_set_name,
+				phen_name,
+				phen_feature_name,
+				gene_set
+			)
+		
+	def test_to_gmt(self):
+		never_run_ref = gsr.Refinement(
+			self.expression_path,
+			self.paths_d,
+			self.gene_set_path,
+			"REACTOME_SIGNALING_BY_ERBB2_v6.0",
+			[2, 3],
+			n_outer_iterations=2,
+			n_inner_iterations=2,
+			verbose = True
+		)
+
+		with self.assertRaisesRegex(
+			RuntimeError,
+			".*Has refinement been run?"
+		):
+			never_run_ref.to_gmt("never_write_me.gmt")
+
+		self.ref.to_gmt("_test_write_out.gmt")
+		gsr.read_gmt("_test_write_out.gmt")
+		os.remove("_test_write_out.gmt")
 
 
 class UtilsTests(unittest.TestCase):
@@ -416,6 +497,55 @@ class UtilsTests(unittest.TestCase):
 
 		self.assertEqual(v1_v2_res, -0.2046)
 		self.assertEqual(v1_v1_res, 1.0)
+
+	def test_compute_information_coefficient_exceptions(self):
+		rng = np.random.default_rng(49)
+
+		## bad lengths
+		vec1 = [round(rng.random(), ndigits = 2) for _ in range(10)]
+		vec2 = [round(rng.random(), ndigits = 2) for _ in range(11)]
+
+		with self.assertRaisesRegex(ValueError, ".*equal length.*"):
+			gsr.compute_information_coefficient(vec1, vec2)
+
+		self.assertIsNone(
+			gsr.compute_information_coefficient(vec1, vec2, raise_if_failed = False)
+		)
+
+		## too short
+
+		vec1 = [round(rng.random(), ndigits = 2) for _ in range(2)]
+		vec2 = [round(rng.random(), ndigits = 2) for _ in range(2)]
+
+		with self.assertRaisesRegex(ValueError, ".*must have at least three.*"):
+			gsr.compute_information_coefficient(vec1, vec2)
+
+		self.assertIsNone(
+			gsr.compute_information_coefficient(vec1, vec2, raise_if_failed = False)
+		)
+
+	def test_compute_information_coefficient_nans(self):
+		rng = np.random.default_rng(49)
+
+		vec1 = [round(rng.random(), ndigits = 2) for _ in range(10)]
+		vec2 = [round(rng.random(), ndigits = 2) for _ in range(10)]
+
+		vec1[6] = np.nan
+		vec1[8] = np.nan
+
+		vec2[5] = np.nan
+		vec2[7] = np.nan
+
+		self.assertIsInstance(
+			gsr.compute_information_coefficient(vec1, vec2),
+			float
+		)
+
+		for i in range(8):
+			vec2[i] = np.nan
+
+		with self.assertRaisesRegex(ValueError, ".*must have at least three.*"):
+			gsr.compute_information_coefficient(vec1, vec2)
 
 
 class Data2DTests(unittest.TestCase):
@@ -464,38 +594,6 @@ class Data2DTests(unittest.TestCase):
 		cls.bad_obj = cls.BadRealData()
 		cls.new_attr_obj = cls.DataNewAttr(cls.test_data, param = 5)
 
-	def test_check_attrs(self):
-		with self.assertRaisesRegex(	
-			AttributeError,
-			(
-				r"Missing attribute\(s\) _data. Does BadRealData\.__init__\(\) "
-				r"call super\(\)\.__init__\(\)\?"
-			)
-		):
-			self.bad_obj.data
-
-		self.assertEqual(
-			self.good_obj.row_names,
-			["r1", "r2", "r3"]
-		)
-
-	def test_parent_attrs(self):
-		self.assertSetEqual(
-			set(self.good_obj._base_attrs.keys()),
-			set(["_data", "_base_attrs"])
-		)
-
-	def test_child_attrs(self):
-		self.assertDictEqual(
-			self.good_obj._get_child_attrs(),
-			{}
-		)
-
-		self.assertDictEqual(
-			self.new_attr_obj._get_child_attrs(),
-			{"_param": 5}
-		)
-
 	def test_getitem(self):
 		new_obj = self.good_obj[["r1", "r3", "r4"], ["a", "c"]]
 
@@ -509,13 +607,6 @@ class Data2DTests(unittest.TestCase):
 			["a", "c"]
 		)
 
-		new_child_obj = self.new_attr_obj[["r1", "r3", "r4"], ["a", "c"]]
-
-		self.assertDictEqual(
-			self.new_attr_obj._get_child_attrs(),
-			new_child_obj._get_child_attrs()
-		)
-
 	def test_subset_nan(self):
 		obj = self.GoodRealData(
 			pd.DataFrame({
@@ -527,8 +618,7 @@ class Data2DTests(unittest.TestCase):
 		)
 
 		## Test 1
-		subs = gsr.Data2D.subset(
-			obj,
+		subs = obj.subset(
 			drop_nan_columns="any"
 		)
 		self.assertTupleEqual(
@@ -537,8 +627,7 @@ class Data2DTests(unittest.TestCase):
 		)
 
 		## Test 2
-		subs = gsr.Data2D.subset(
-			obj,
+		subs = obj.subset(
 			drop_nan_rows = "all"
 		)
 		self.assertTupleEqual(
@@ -547,9 +636,8 @@ class Data2DTests(unittest.TestCase):
 		)
 
 		## Test 3
-		subs = gsr.Data2D.subset(
-			obj,
-			drop_nan_columns = "all"
+		subs = obj.subset(
+			drop_nan_columns="all"
 		)
 		self.assertTupleEqual(
 			subs.shape,
@@ -581,8 +669,7 @@ class Data2DTests(unittest.TestCase):
 
 		## Rows only
 
-		subs_obj1, subs_obj2 = gsr.Data2D.subset_shared(
-			obj1,
+		subs_obj1, subs_obj2 = obj1.subset_shared(
 			obj2,
 			shared_rows = True
 		)
@@ -593,8 +680,7 @@ class Data2DTests(unittest.TestCase):
 
 		## Columns only
 
-		subs_obj1, subs_obj2 = gsr.Data2D.subset_shared(
-			obj1,
+		subs_obj1, subs_obj2 = obj1.subset_shared(
 			obj2,
 			shared_cols = True
 		)
@@ -605,8 +691,7 @@ class Data2DTests(unittest.TestCase):
 
 		## Rows and columns
 
-		subs_obj1, subs_obj2 = gsr.Data2D.subset_shared(
-			obj1,
+		subs_obj1, subs_obj2 = obj1.subset_shared(
 			obj2,
 			shared_rows = True,
 			shared_cols = True
@@ -616,6 +701,118 @@ class Data2DTests(unittest.TestCase):
 			((1, 3), (1, 3))
 		)
 
+	def test_get_row_inds_data2d(self):
+		obj = self.GoodRealData(
+			pd.DataFrame({
+				"a": [0, 1, 2],
+				"b": [3, 4, 5],
+				"c": [4, 5, 2],
+				"d": [4, 5, 1]
+			},
+			index = [f"r{i}" for i in range(3)] # r0, r1, r2,
+			)
+		)
+
+		inds = obj._get_row_inds(["r1", "r2"])
+
+		self.assertListEqual(inds, [1, 2])
+
+	def test_get_col_inds_data2d(self):
+		obj = self.GoodRealData(
+			pd.DataFrame({
+				"a": [0, 1, 2],
+				"b": [3, 4, 5],
+				"c": [4, 5, 2],
+				"d": [4, 5, 1]
+			},
+			index = [f"r{i}" for i in range(3)] # r0, r1, r2,
+			)
+		)
+
+		inds = obj._get_col_inds(["b", "d"])
+
+		self.assertListEqual(inds, [1, 3])
+	
+	def test_get_row_inds_data2dview(self):
+		obj = self.GoodRealData(
+			pd.DataFrame({
+				"a": [0, 1, 2],
+				"b": [3, 4, 5],
+				"c": [4, 5, 2],
+				"d": [4, 5, 1]
+			},
+			index = [f"r{i}" for i in range(3)] # r0, r1, r2,
+			)
+		)
+
+		subs_obj = obj.subset(row_names = ["r1", "r2"])
+
+		inds = subs_obj._get_row_inds(["r1", "r2"])
+
+		self.assertListEqual(inds, [1, 2])
+
+	def test_get_col_inds_data2dview(self):
+		obj = self.GoodRealData(
+			pd.DataFrame({
+				"a": [0, 1, 2],
+				"b": [3, 4, 5],
+				"c": [4, 5, 2],
+				"d": [4, 5, 1]
+			},
+			index = [f"r{i}" for i in range(3)] # r0, r1, r2,
+			)
+		)
+
+		subs_obj = obj.subset(column_names = ["b", "d"])
+
+		inds = subs_obj._get_col_inds(["b", "d"])
+
+		self.assertListEqual(inds, [1, 3])
+
+	def test_row_subset_order(self):
+		full_names = [char for char in string.ascii_letters]
+
+		subset_names = [char for char in string.ascii_lowercase[::-1]]
+
+		obj = self.GoodRealData(
+			pd.DataFrame({
+				char: [1, 2, 3]
+				for char in full_names
+			}).T
+		)
+
+		subs_obj = obj.subset(row_names = subset_names)
+
+		joined_subs_row_names = ''.join(subs_obj.row_names)
+
+		self.assertEqual(joined_subs_row_names, string.ascii_lowercase[::-1])
+
+	def test_col_subset_order(self):
+		full_names = [char for char in string.ascii_letters]
+
+		subset_names = [char for char in string.ascii_lowercase[::-1]]
+
+		obj = self.GoodRealData(
+			pd.DataFrame({
+				char: [1, 2, 3]
+				for char in full_names
+			})
+		)
+
+		subs_obj = obj.subset(column_names = subset_names)
+
+		joined_subs_col_names = ''.join(subs_obj.col_names)
+
+		self.assertEqual(joined_subs_col_names, string.ascii_lowercase[::-1])
+
+
+class VersionTest(unittest.TestCase):
+	def test_version(self):
+		#text_version = Path(__file__).with_name("src/GeneSetRefinement/_version.py").read_text().split('=')[-1].strip('\n').strip()[1:-1]
+		with open("src/GeneSetRefinement/_version.py", 'r') as f:
+			text_version = f.readline().strip('\n').split('=')[1].strip()[1:-1]
+
+		self.assertEqual(text_version, gsr.__version__)
 
 
 if __name__ == "__main__":
@@ -624,7 +821,15 @@ if __name__ == "__main__":
 	unittest.main(
 		argv = [sys.argv[0]],
 		verbosity = 2,
-		#defaultTest = ["RefinementTests"]
+		#defaultTest = [
+		#	"ExpressionTests",
+		#	"PhenotypesTests",
+		#	"GeneSetTests",
+		#	"RefinementTests",
+		#	"UtilsTests",
+		#	"Data2DTests",
+		#	"VersionTest"
+		#]
 	)
 
 

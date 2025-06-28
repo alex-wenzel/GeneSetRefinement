@@ -4,7 +4,6 @@ Object containing refinement results and functions that implement the workflow.
 
 from abc import abstractmethod
 from datetime import datetime
-from  importlib import metadata
 import numpy as np
 import pandas as pd
 import pickle

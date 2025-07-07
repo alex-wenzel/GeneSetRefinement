@@ -2,7 +2,6 @@
 Representation of a gene set with parsing functions from lists and GMTs
 """
 
-import pandas as pd
 from typing import Dict, List, Optional
 
 
@@ -34,9 +33,7 @@ def read_gmt(
 
 			gene_set_name = split[0]
 
-			gene_set_genes = [
-				gene for gene in set(split[2:]) if gene
-			]
+			gene_set_genes = [gene for gene in split[2:] if gene]
 
 			gs_d[gene_set_name] = gene_set_genes
 
@@ -74,9 +71,6 @@ class GeneSet:
 		`genes` : `List[str]`
 			The gene set genes. 
 		"""
-		#if len(gene_set_genes) == 0:
-		#	raise self.EmptyGeneSetException(gene_set_name)
-
 		self._name = gene_set_name
 		self._genes = gene_set_genes
 

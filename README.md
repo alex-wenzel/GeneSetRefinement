@@ -1,6 +1,10 @@
 # GeneSetRefinement
 A Python package implementing Gene Set Refinement. 
 
+Installation notes:
+- If you are using a Mac and get the error `clang: error: unsupported option '-fopenmp'`, 
+follow [these instructions](https://stackoverflow.com/a/60043467/26707652).
+
 Quick start:
 
 To run Gene Set Refinement with an initial gene set called `"gene set name"` in

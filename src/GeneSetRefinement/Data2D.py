@@ -1,97 +1,28 @@
 from abc import ABCMeta, abstractmethod
-from multiprocessing import Value
 import pandas as pd
 import numpy as np
 from typing import (
-	Any, Dict, Generic, List, Literal, Optional, overload, Tuple, Type, 
+	Dict, Generic, List, Literal, Optional, overload, Tuple,
 	TypeVar
 )
 from typing_extensions import Self
 
+
 class Data2DAbs(metaclass=ABCMeta):
-	_base_attrs: Dict[str, Any]
 
-	def __init__(self) -> None:
-		self._base_attrs = {}
-
-		for key in vars(self).keys():
-			self._base_attrs[key] = vars(self)[key]
-
-	def _check_subset_input(
+	@abstractmethod
+	def _check_subset_rows(
 		self,
-		subset_labels: str|List[str],
-		axis_labels: List[str]
+		subset_labels: List[str]
 	) -> Optional[List[str]]:
-		"""
-		If `subset_labels` is a list, return the items that are in 
-		`axis_labels`. If intersection is empty, return `None`. If 
-		`subset_labels` is a `str`, return it if it is in `axis_labels`, 
-		otherwise return `None`. 
+		pass
 
-		Parameters
-		----------
-		`subset_labels` : `str` or `list` of `str`
-			The label(s) of the subset being requested. 
-
-		`axis_labels` : `List[str]`
-			The current axis labels for this object. 
-
-		Returns
-		-------
-		`str`, `list` of `str`, `None`
-			`subset_labels` found in `axis_labels`, see function description. 
-		"""
-		if isinstance(subset_labels, str):
-			subset_labels_list = [subset_labels]
-		else:
-			subset_labels_list = subset_labels
-
-		found_labels = [
-			x for x in subset_labels_list if x in axis_labels
-		]
-
-		if len(found_labels) == 0:
-			return None
-
-		return found_labels
-
-	def _check_attrs(
+	@abstractmethod
+	def _check_subset_columns(
 		self,
-		attrs: List[str]
-	) -> None:
-		"""
-		Checks if this object has the specified attributes. If not, raises
-		an `AttributeError` that advises the user to make sure the implementing
-		class calls `super().__init__()`. 
-		"""
-		missing_attrs: List[str] = [
-			a for a in attrs if not hasattr(self, a)
-		]
-
-		if len(missing_attrs) == 0:
-			return
-
-		cls_name: str = self.__class__.__name__
-
-		raise AttributeError((
-			f"Missing attribute(s) {', '.join(missing_attrs)}. "
-			f"Does {cls_name}.__init__() call super().__init__()?"
-		))
-
-	def _get_child_attrs(self) -> Dict[str, Any]:
-		"""
-		Returns any attribute names and values that are added by a child of
-		`Data2D`. 
-
-		Returns
-		-------
-		`dict` of `str` to any type
-		"""
-		return {
-			key: vars(self)[key]
-			for key in vars(self).keys()
-			if key not in self._base_attrs
-		}
+		subset_labels: List[str]
+	) -> Optional[List[str]]:
+		pass
 
 	@abstractmethod
 	def _get_row_inds(
@@ -158,21 +89,6 @@ class Data2DAbs(metaclass=ABCMeta):
 		axis: Literal[0] | Literal[1],
 		how: HOW_T
 	) -> None:
-		pass
-
-	OTHER_T = TypeVar("OTHER_T", bound = "Data2D")
-
-	@abstractmethod
-	def subset_shared(
-		self,
-		other: "OTHER_T | Data2DView[OTHER_T]",
-		shared_rows: bool = False,
-		shared_cols: bool = False,
-		self_drop_nan_rows: Optional[HOW_T] = None,
-		self_drop_nan_columns: Optional[HOW_T] = None,
-		other_drop_nan_rows: Optional[HOW_T] = None,
-		other_drop_nan_columns: Optional[HOW_T] = None
-	) -> "Tuple[Data2DView[OTHER_T], Data2DView[OTHER_T]]":
 		pass
 
 	@overload
@@ -259,7 +175,7 @@ class Data2DAbs(metaclass=ABCMeta):
 
 class Data2D(Data2DAbs, metaclass=ABCMeta):
 	_data: pd.DataFrame
-
+	
 	def __init__(
 		self,
 		data: pd.DataFrame
@@ -277,7 +193,13 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 		"""
 		rows, cols = keys
 
-		shared_rows = self._check_subset_input(rows, self.row_names)
+		if isinstance(rows, str):
+			rows = [rows]
+
+		if isinstance(cols, str):
+			cols = [cols]
+
+		shared_rows = self._check_subset_rows(rows)
 
 		if shared_rows is None:
 			raise KeyError((
@@ -285,7 +207,7 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 				f"are in this {self.data_name}."
 			))
 
-		shared_cols = self._check_subset_input(cols, self.col_names)
+		shared_cols = self._check_subset_columns(cols)
 
 		if shared_cols is None:
 			raise KeyError((
@@ -296,6 +218,46 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 		filt_data: pd.DataFrame = self.data.loc[shared_rows, shared_cols]
 
 		return self.__class__(filt_data)
+	
+	def _check_subset_rows(
+		self,
+		subset_labels: List[str]
+	) -> Optional[List[str]]:
+		"""
+		"""
+		found_labels: List[str] = []
+
+		for label in subset_labels:
+			try:
+				self._data.loc[label,:]
+				found_labels.append(label)
+			except KeyError:
+				continue
+
+		if len(found_labels) == 0:
+			return None
+		
+		return found_labels
+		
+	def _check_subset_columns(
+		self,
+		subset_labels: List[str]
+	) -> Optional[List[str]]:
+		"""
+		"""
+		found_labels: List[str] = []
+
+		for label in subset_labels:
+			try:
+				self._data.loc[:,label]
+				found_labels.append(label)
+			except KeyError:
+				continue
+
+		if len(found_labels) == 0:
+			return None
+		
+		return found_labels
 	
 	def _get_row_inds(
 		self, 
@@ -340,25 +302,35 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 	) ->  "Data2DView[Self]":
 		"""
 		"""
-		ret_rows: List[str] = row_names
-		ret_columns: List[str] = column_names
+		ret_rows: Optional[List[str]] = row_names
+		ret_columns: Optional[List[str]] = column_names
+
+		## Get shared row names
 
 		if len(ret_rows) == 0:
 			ret_rows = self.row_names
+		else:
+			ret_rows = self._check_subset_rows(ret_rows)
+
+			if ret_rows is None:
+				raise KeyError((
+					f"None of requested {self.row_title} names "
+					f"are in this {self.data_name}."
+				))
+			
+		## Get shared column names
 
 		if len(ret_columns) == 0:
 			ret_columns = self.col_names
+		else:
+			ret_columns = self._check_subset_columns(ret_columns)
 
-		## Not saved, to trigger a KeyError if any missing names
-		## TODO: THIS MIGHT NOT PRINT CORRECT AXIS, CHECK EACH INDIVIDUALLY
-		try:
-			self.data.loc[ret_rows, ret_columns]
-		except KeyError:
-			raise KeyError((
-				f"None of requested {self.row_title} names "
-				f"are in this {self.data_name}."
-			))
-
+			if ret_columns is None:
+				raise KeyError((
+					f"None of requested {self.col_title} names "
+					f"are in this {self.data_name}."
+				))
+		
 		subs = Data2DView(
 			self, 
 			self._get_row_inds(ret_rows), 
@@ -390,91 +362,6 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 			axis = axis,
 			how = how
 		)
-
-	OTHER_T = TypeVar("OTHER_T", bound = "Data2D")
-
-	def subset_shared(
-		self,
-		other: "OTHER_T | Data2DView[OTHER_T]",
-		shared_rows: bool = False,
-		shared_cols: bool = False,
-		self_drop_nan_rows: Optional[HOW_T] = None,
-		self_drop_nan_columns: Optional[HOW_T] = None,
-		other_drop_nan_rows: Optional[HOW_T] = None,
-		other_drop_nan_columns: Optional[HOW_T] = None
-	) -> "Tuple[Data2DView[Self], Data2DView[OTHER_T]]":
-		"""
-		"""
-		if not (shared_rows or shared_cols):
-			raise ValueError(
-				"One or both of shared_rows and shared_cols must be True"
-			)
-		
-		self_row_order: Dict[str, int] = {rn: i for i, rn in enumerate(self.row_names)}
-		self_col_order: Dict[str, int] = {cn: i for i, cn in enumerate(self.col_names)}
-
-		other_row_order: Dict[str, int] = {rn: i for i, rn in enumerate(other.row_names)}
-		other_col_order: Dict[str, int] = {cn: i for i, cn in enumerate(other.col_names)}
-
-		## Get rows to subset
-
-		if shared_rows:
-			self_row_names = list(
-				set(self.row_names).intersection(other.row_names)
-			)
-
-			if len(self_row_names) == 0:
-				raise ValueError(
-					f"No shared row names between {self.data_name} and "
-					f"{other.data_name} objects."
-				)
-
-			other_row_names = self_row_names
-
-		else:
-			self_row_names = self.row_names
-			other_row_names = other.row_names
-
-		self_row_names.sort(key = lambda rn: self_row_order[rn])
-		other_row_names.sort(key = lambda cn: other_row_order[cn])
-
-		## Get columns to subset
-
-		if shared_cols:
-			self_col_names = list(
-				set(self.col_names).intersection(other.col_names)
-			)
-
-			if len(self_col_names) == 0:
-				raise ValueError(
-					f"No shared column names between {self.data_name} and "
-					f"{other.data_name} objects."
-				)
-
-			other_col_names = self_col_names
-
-		else:
-			self_col_names = self.col_names
-			other_col_names = other.col_names
-
-		self_col_names.sort(key = lambda rn: self_col_order[rn])
-		other_col_names.sort(key = lambda cn: other_col_order[cn])
-
-		self_subs = self.subset(
-			row_names = self_row_names,
-			column_names = self_col_names,
-			drop_nan_rows = self_drop_nan_rows,
-			drop_nan_columns = self_drop_nan_columns
-		)
-
-		other_subs = other.subset(
-			row_names = other_row_names,
-			column_names = other_col_names,
-			drop_nan_rows = other_drop_nan_rows,
-			drop_nan_columns = other_drop_nan_columns
-		)
-
-		return (self_subs, other_subs)
 
 	@overload
 	def subset_random_samples(
@@ -510,8 +397,8 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 		## Define loop stop checks
 		## Convention: 'keep' is first matrix, 'disc' (discard) is second matrix
 
-		keep_has_zero_rows = True
-		disc_has_zero_rows = True
+		keep_has_zero_row = True
+		disc_has_zero_row = True
 		tries = 0
 
 		## Define sampling checks
@@ -600,22 +487,18 @@ class Data2D(Data2DAbs, metaclass=ABCMeta):
 
 	@property
 	def row_names(self) -> List[str]:
-		#self._check_attrs(["_data"])
 		return self._data.index.to_list()
 
 	@property
 	def col_names(self) -> List[str]: 
-		#self._check_attrs(["_data"])
 		return self._data.columns.to_list()
 
 	@property
 	def data(self) -> pd.DataFrame:
-		#self._check_attrs(["_data"])
 		return self._data
 
 	@property
 	def shape(self) -> Tuple[int, int]:
-		#self._check_attrs(["_data"])
 		return self._data.shape
 
 	@property
@@ -651,7 +534,13 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 		"""
 		rows, cols = keys
 
-		shared_rows = self._check_subset_input(rows, self.row_names)
+		if isinstance(rows, str):
+			rows = [rows]
+
+		if isinstance(cols, str):
+			cols = [cols]
+
+		shared_rows = self._check_subset_rows(rows)
 
 		if shared_rows is None:
 			raise KeyError((
@@ -659,7 +548,7 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 				f"are in this {self.data_name}."
 			))
 
-		shared_cols = self._check_subset_input(cols, self.col_names)
+		shared_cols = self._check_subset_columns(cols)
 
 		if shared_cols is None:
 			raise KeyError((
@@ -672,6 +561,54 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 			self._get_row_inds(shared_rows),
 			self._get_col_inds(shared_cols)
 		)
+	
+	def _check_subset_rows(
+		self,
+		subset_labels: List[str]
+	) -> Optional[List[str]]:
+		"""
+		"""
+		row_name_d = {
+			row_name: True for row_name in self.row_names
+		}
+
+		found_labels: List[str] = []
+
+		for label in subset_labels:
+			try:
+				row_name_d[label]
+				found_labels.append(label)
+			except KeyError:
+				continue
+
+		if len(found_labels) == 0:
+			return None
+		
+		return found_labels
+	
+	def _check_subset_columns(
+		self,
+		subset_labels: List[str]
+	) -> Optional[List[str]]:
+		"""
+		"""
+		col_name_d = {
+			col_name: True for col_name in self.col_names
+		}
+
+		found_labels: List[str] = []
+
+		for label in subset_labels:
+			try:
+				col_name_d[label]
+				found_labels.append(label)
+			except KeyError:
+				continue
+
+		if len(found_labels) == 0:
+			return None
+		
+		return found_labels
 	
 	def _get_row_inds(
 		self,
@@ -721,19 +658,33 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 
 		if len(ret_rows) == 0:
 			ret_rows = self.row_names
+		else:
+			ret_rows = [
+				row_name for row_name in ret_rows
+				if row_name in self.row_names
+			]
+
+			if len(ret_rows) == 0:
+				raise KeyError((
+					f"None of requested {self.row_title} names "
+					f"are in this {self.data_name}."
+				))
+			
+		## Get shared column names
 
 		if len(ret_columns) == 0:
 			ret_columns = self.col_names
+		else:
+			ret_columns = [
+				column_name for column_name in ret_columns
+				if column_name in self.col_names
+			]
 
-		## Not saved, to trigger a KeyError if any missing names
-		## TODO: THIS MIGHT NOT PRINT CORRECT AXIS, CHECK EACH INDIVIDUALLY
-		try:
-			self._data2d.data.loc[ret_rows, ret_columns]
-		except KeyError:
-			raise KeyError((
-				f"None of requested {self.row_title} names "
-				f"are in this {self.data_name}."
-			))
+			if len(ret_columns) == 0:
+				raise KeyError((
+					f"None of requested {self.col_title} names "
+					f"are in this {self.data_name}."
+				))
 
 		subs = Data2DView(
 			self._data2d, 
@@ -806,91 +757,6 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 		else:
 			raise ValueError(f"axis must be 0 or 1, got {axis}")
 
-	OTHER_T = TypeVar("OTHER_T", bound = "Data2D")
-
-	def subset_shared(
-		self,
-		other: "OTHER_T | Data2DView[OTHER_T]",
-		shared_rows: bool = False,
-		shared_cols: bool = False,
-		self_drop_nan_rows: Optional[HOW_T] = None,
-		self_drop_nan_columns: Optional[HOW_T] = None,
-		other_drop_nan_rows: Optional[HOW_T] = None,
-		other_drop_nan_columns: Optional[HOW_T] = None
-	) -> "Tuple[Data2DView[REAL_T], Data2DView[OTHER_T]]":
-		"""
-		"""
-		if not (shared_rows or shared_cols):
-			raise ValueError(
-				"One or both of shared_rows and shared_cols must be True"
-			)
-		
-		self_row_order: Dict[str, int] = {rn: i for i, rn in enumerate(self.row_names)}
-		self_col_order: Dict[str, int] = {cn: i for i, cn in enumerate(self.col_names)}
-
-		other_row_order: Dict[str, int] = {rn: i for i, rn in enumerate(other.row_names)}
-		other_col_order: Dict[str, int] = {cn: i for i, cn in enumerate(other.col_names)}
-
-		## Get rows to subset
-
-		if shared_rows:
-			self_row_names = list(
-				set(self.row_names).intersection(other.row_names)
-			)
-
-			if len(self_row_names) == 0:
-				raise ValueError(
-					f"No shared row names between {self.data_name} and "
-					f"{other.data_name} objects."
-				)
-
-			other_row_names = self_row_names
-
-		else:
-			self_row_names = self.row_names
-			other_row_names = other.row_names
-
-		self_row_names.sort(key = lambda rn: self_row_order[rn])
-		other_row_names.sort(key = lambda cn: other_row_order[cn])
-
-		## Get columns to subset
-
-		if shared_cols:
-			self_col_names = list(
-				set(self.col_names).intersection(other.col_names)
-			)
-
-			if len(self_col_names) == 0:
-				raise ValueError(
-					f"No shared column names between {self.data_name} and "
-					f"{other.data_name} objects."
-				)
-
-			other_col_names = self_col_names
-
-		else:
-			self_col_names = self.col_names
-			other_col_names = other.col_names
-
-		self_col_names.sort(key = lambda rn: self_col_order[rn])
-		other_col_names.sort(key = lambda cn: other_col_order[cn])
-
-		self_subs = self.subset(
-			row_names = self_row_names,
-			column_names = self_col_names,
-			drop_nan_rows = self_drop_nan_rows,
-			drop_nan_columns = self_drop_nan_columns
-		)
-
-		other_subs = other.subset(
-			row_names = other_row_names,
-			column_names = other_col_names,
-			drop_nan_rows = other_drop_nan_rows,
-			drop_nan_columns = other_drop_nan_columns
-		)
-
-		return (self_subs, other_subs)
-
 	@overload
 	def subset_random_samples(
 		self,
@@ -925,34 +791,32 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 		## Define loop stop checks
 		## Convention: 'keep' is first matrix, 'disc' (discard) is second matrix
 
-		keep_has_zero_rows = True
-		disc_has_zero_rows = True
+		keep_has_zero_row = True
+		disc_has_zero_row = True
 		tries = 0
 
 		## Define sampling checks
 		n_to_choose = int(self.shape[1] * frac)
 
-		col_order: Dict[str, int] = {cn: i for i, cn in enumerate(self.col_names)}
-
 		## Sampling loop
 		while True:
 			## Choose columns for 'keep' matrix
-			keep_cols = rng.choice(
-				self.col_names,
+			keep_col_inds = rng.choice(
+				self._col_inds,
 				size = n_to_choose,
 				replace = False
 			).tolist()
 
-			keep_cols.sort(key = lambda cn: col_order[cn])
+			keep_col_inds = sorted(keep_col_inds)
 
 			## Build keep and discard matrices
-			disc_cols = [
-				col for col in self.col_names
-				if col not in keep_cols
+			disc_col_inds = [
+				col_ind for col_ind in self._col_inds
+				if col_ind not in keep_col_inds
 			]
 
-			keep = self.subset(self.row_names, keep_cols)
-			disc = self.subset(self.row_names, disc_cols)
+			keep = Data2DView(self._data2d, self._row_inds, keep_col_inds)
+			disc = Data2DView(self._data2d, self._row_inds, disc_col_inds)
 
 			if no_zero_rows:
 				keep_has_zero_row = keep.data2d.has_zero_row()
@@ -982,20 +846,6 @@ class Data2DView(Data2DAbs, Generic[REAL_T]):
 	) -> List[float]:
 		"""
 		"""
-
-		"""
-		if self.shape[0] == 1:
-			return self._data2d.data.iloc[0,self._col_inds].to_list()
-
-		elif self.shape[1] == 1:
-			return self._data2d.data.iloc[self._row_inds,0].to_list()
-
-		else:
-			raise ValueError(
-				f"Cannot call squeeze() for data of shape {self.shape}."
-			)
-		"""
-
 		if len(self._row_inds) == 1:
 			ind = self._row_inds[0]
 			return self._data2d.data.iloc[ind, self._col_inds].to_list()

@@ -1,3 +1,3 @@
 #!/bin/bash
 
-python unit_tests.py ../../_COMPENDIA/DepMap/23Q2
+python unit_tests.py ../../_COMPENDIA/DepMap/24Q4

@@ -138,24 +138,6 @@ class Refinement(RefinementObject):
 
 		`verbose` : `bool`, default `False`
 		"""
-		#omp = os.environ["OMP_NUM_THREADS"]
-		#mkl = os.environ["MKL_NUM_THREADS"]
-		#if omp == "1" or mkl == "1":
-		#	choice = input((
-		#		"WARNING: Refinement may be unstable and consume "
-		#		"excessive resources if OMP_NUM_THREADS and MKL_NUM_THREADS "
-		#		"are not set to '1' p"
-		#	))
-
-		#n_children = len(
-		#	subprocess.check_output(
-		#		f"pstree -p {os.getpid()}",
-		#		shell = True
-		#	).decode("utf-8").strip('\n').split('\n')
-		#) - 1
-
-		#n_children = len(psutil.Process(os.getpid()).children())
-
 		n_child_procs = len(psutil.Process(os.getpid()).children())
 
 		n_child_threads = len(
@@ -409,10 +391,12 @@ class Refinement(RefinementObject):
 					assert ii._train_expr is not None
 					assert ii._gen_expr is not None
 					assert ii._A is not None
+					assert ii._nmf_result._A is not None
 
 					ii._train_expr._data2d = self._expr
 					ii._gen_expr._data2d = self._expr
 					ii._A._data2d = self._expr
+					ii._nmf_result._A._data2d = self._expr
 
 			## Concatenate components across lists
 

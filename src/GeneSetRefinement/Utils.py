@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from datetime import datetime
 from gp.data import GCT
 from multiprocessing.pool import Pool
 import numpy as np
 from numpy import in1d, full, absolute
-from numpy.random import random_sample, sample, seed 
+from numpy.random import random_sample, seed 
 import pandas as pd
 from scipy.signal import convolve2d
 from scipy.sparse import coo_matrix
 from scipy.stats import gaussian_kde, pearsonr
-from typing import TYPE_CHECKING, Any, Callable, List, Literal, Optional, overload, Tuple, Type, TypeVar
+import sys
+from typing import TYPE_CHECKING, Any, Callable, List, Literal, Optional, overload, Tuple, TypeVar
 import warnings
 
 from .Data2D import Data2D
@@ -19,6 +21,56 @@ if TYPE_CHECKING:
 	from .Expression import Expression
 
 EPS = np.finfo(float).eps
+
+
+class Log:
+	_verbose: bool
+	_ts_format: str
+	_base_tabs: int
+
+	def __init__(
+		self,
+		verbose: bool,
+		timestamp_format: str = "[%b %d, %Y %H:%M:%S]",
+		base_tabs = 0
+	) -> None:
+		self._verbose = verbose
+		self._ts_format = timestamp_format
+		self._base_tabs = base_tabs
+
+	def __call__(
+		self,
+		msg: str,
+		tabs: int = 0,
+		always_print: bool = False
+	) -> None:
+		"""
+		"""
+		if not (always_print or self._verbose):
+			return
+		
+		log_s = ""
+		now = datetime.now()
+
+		log_s += f"{now.strftime(self._ts_format)}"
+		log_s += f"{' | ' * (self._base_tabs + tabs)} "
+		log_s += f"{msg}"
+		
+		print(log_s, flush=True)
+
+	@classmethod
+	def new_indented_log(
+		cls,
+		old_log: Log,
+		base_tabs: int
+	) -> Log:
+		"""
+		"""
+		return cls(
+			old_log._verbose,
+			old_log._ts_format,
+			base_tabs
+		)
 
 
 def load_gct(
@@ -389,20 +441,6 @@ def compute_information_coefficient(
 	x_arr = np.asarray(x, dtype = float)
 	y_arr = np.asarray(y, dtype = float)
 
-	#try:
-	#	# Need at least 3 values to compute bandwidth
-	#	if len(x_arr) < 3 or len(y_arr) < 3:
-	#		return 0.0
-	#except TypeError:
-	#	# If x and y are numbers, we cannot continue and IC is zero.
-	#	return 0.0
-
-	#if len(x_arr) != len(y_arr):
-	#	return _raise_if_failed(
-	#		raise_if_failed, 
-	#		ValueError(f"x and y not equal length, got {len(x)} and {len(y)}.")
-	#	)
-
 	try:
 		x_arr, y_arr = _drop_nan_columns([x_arr, y_arr])
 	except ValueError as e:
@@ -419,9 +457,6 @@ def compute_information_coefficient(
 			ValueError(f"x and y must have at least three elements, got {len(x)} and {len(y)}.")
 		)
 
-	#x_arr = np.asarray(x, dtype = float)
-	#y_arr = np.asarray(y, dtype = float)
-
 	if (x_arr == y_arr).all():
 		return 1.0
 
@@ -431,14 +466,6 @@ def compute_information_coefficient(
 	y_arr += random_sample(y_arr.size) * jitter
 
 	# Compute bandwidths
-	#try:
-	#	pearson_res = pearsonr(x, y)
-	#except ValueError as e:
-	#	if raise_if_failed:
-	#		raise e
-	#	else:
-	#		return None
-
 	try:
 		pearson_res = pearsonr(x_arr, y_arr)
 	except ValueError as e:
@@ -673,7 +700,7 @@ def run_ssgsea_parallel(
 	"""
 	"""
 
-	"""
+	#"""
 	score__gene_set_x_sample = pd.concat(
 		multiprocess(
 			_single_sample_gseas,
@@ -689,18 +716,18 @@ def run_ssgsea_parallel(
 		axis = 1
 	)
 
-	score__gene_set_x_sample = score__gene_set_x_sample[gene_x_sample.sample_names]
+	score__gene_set_x_sample = score__gene_set_x_sample[gene_x_sample.col_names]
 
 	return ssGSEAResult(score__gene_set_x_sample)
-	"""
+	#"""
 
-	score__gene_set_x_sample = _single_sample_gseas(
-		gene_x_sample.data,
-		gene_sets,
-		statistic
-	)
+	#score__gene_set_x_sample = _single_sample_gseas(
+	#	gene_x_sample.data,
+	#	gene_sets,
+	#	statistic
+	#)
 
-	return ssGSEAResult(score__gene_set_x_sample)
+	#return ssGSEAResult(score__gene_set_x_sample)
 
 
 

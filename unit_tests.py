@@ -7,6 +7,10 @@ following files to be present at the directory provided in sys.argv[1]:
 - processed_solid_samples/depmap23q2_crispr_solid_samples.gct
 """
 
+import os
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+
 import numpy as np
 import os
 import pandas as pd

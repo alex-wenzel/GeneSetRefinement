@@ -2,15 +2,18 @@
 Object containing refinement results and functions that implement the workflow.
 """
 
-import copy
-from datetime import datetime
 from multiprocessing import Pool
 import numpy as np
+import os
 import pickle
+import psutil
+import subprocess
 from sklearn.cluster import KMeans
+import sys
 from typing import Dict, List, Optional, cast
 
 from .ComponentCluster import ComponentCluster
+from .Data2D import Data2DView
 from .Expression import Expression
 from .GeneComponentIC import CombinedGeneComponentIC
 from .GeneSet import GeneSet
@@ -135,6 +138,57 @@ class Refinement(RefinementObject):
 
 		`verbose` : `bool`, default `False`
 		"""
+		#omp = os.environ["OMP_NUM_THREADS"]
+		#mkl = os.environ["MKL_NUM_THREADS"]
+		#if omp == "1" or mkl == "1":
+		#	choice = input((
+		#		"WARNING: Refinement may be unstable and consume "
+		#		"excessive resources if OMP_NUM_THREADS and MKL_NUM_THREADS "
+		#		"are not set to '1' p"
+		#	))
+
+		#n_children = len(
+		#	subprocess.check_output(
+		#		f"pstree -p {os.getpid()}",
+		#		shell = True
+		#	).decode("utf-8").strip('\n').split('\n')
+		#) - 1
+
+		#n_children = len(psutil.Process(os.getpid()).children())
+
+		n_child_procs = len(psutil.Process(os.getpid()).children())
+
+		n_child_threads = len(
+			subprocess.check_output(
+				f"ps -T {os.getpid()}",
+				shell = True
+			).decode("utf-8").strip('\n').split('\n')
+		) - 2
+
+		if n_child_procs > 0 or n_child_threads > 0:
+			choice = input((
+				f"\nWARNING: Refinement may be unstable and consume\n"
+				f"excessive memory if its dependencies are allowed to\n"
+				f"start threads. This Python process ({os.getpid()}) currently has\n"
+				f"{n_child_procs} child processes and {n_child_threads} "
+				f"child threads which\nwere likely started "
+				f"by importing libraries like numpy.\nIt is strongly "
+				f"recommended that you add the following lines to\n"
+				f"your driver script BEFORE ANY OTHER IMPORT.\n"
+				f"\n"
+				f"\timport os\n"
+				f"\tos.environ['OMP_NUM_THREADS'] = '1'\n"
+				f"\tos.environ['MKL_NUM_THREADS'] = '1'\n"
+				f"\n"
+				f"If you are sure you want to continue, type YES "
+				f"(otherwise type anything else or CTRL+C to exit): "
+			))
+
+			if choice != "YES":
+				print("Exiting")
+				sys.exit(0)
+
+
 		## Save parameters and paths
 		self._expr_path = expression_gct_path
 		self._min_counts = min_total_gene_counts
@@ -199,14 +253,59 @@ class Refinement(RefinementObject):
 		## Process RNG
 		self._rng = np.random.default_rng(self._seed)
 
+	
+	"""
+	(InnerIteration(
+		train,
+		self._gs,
+		i,
+		j,
+		k,
+		seeds[j],
+		Log.new_indented_log(self._log, 3),
+		max_downsample_tries = self._max_tries
+	),)
+	"""
+	
+	"""
 	@staticmethod
 	def _ii_worker(
 		ii: InnerIteration,
 	) -> InnerIteration:
-		"""
-		"""
+		###
+		###
 		ii.run()
 		return ii
+	"""
+
+	@staticmethod
+	def _ii_worker(
+		train: Data2DView[Expression],
+		gs: GeneSet,
+		i: int,
+		j: int,
+		k: int,
+		seed: int,
+		log: Log,
+		max_tries: int
+	) -> InnerIteration:
+		"""
+		"""
+		ii = InnerIteration(
+			train,
+			gs,
+			i,
+			j,
+			k,
+			seed,
+			log,
+			max_downsample_tries=max_tries
+		)
+
+		ii.run()
+
+		return ii
+		
 	
 	@staticmethod
 	def _phen_comp_ic_worker(
@@ -275,25 +374,34 @@ class Refinement(RefinementObject):
 
 				self._log("Preparing inner iterations...", tabs = 2)
 
+				#in_ii_l = [
+				#	(InnerIteration(
+				#		train,
+				#		self._gs,
+				#		i,
+				#		j,
+				#		k,
+				#		seeds[j],
+				#		Log.new_indented_log(self._log, 3),
+				#		max_downsample_tries = self._max_tries
+				#	),)
 				in_ii_l = [
-					(InnerIteration(
-						train,
-						self._gs,
-						i,
-						j,
-						k,
-						seeds[j],
-						Log.new_indented_log(self._log, 3),
-						max_downsample_tries = self._max_tries
-					),)
+					(
+						train, self._gs, i, j, k, seeds[j], 
+						Log.new_indented_log(self._log, 3), self._max_tries
+					)
 					for j in range(self._n_inner)
 				]
 
 				self._log("done", tabs = 2)
 
+				#with multiprocessing.get_context("spawn").Pool(self._n_proc) as pool:
 				with Pool(self._n_proc) as pool:
 					self._iterations[k].append(
-						pool.starmap(self._ii_worker, in_ii_l)
+						pool.starmap(
+							self._ii_worker, 
+							in_ii_l
+						)
 					)
 
 				for ii in self._iterations[k][i]:

@@ -296,6 +296,16 @@ class Refinement(RefinementObject):
 						pool.starmap(self._ii_worker, in_ii_l)
 					)
 
+				for ii in self._iterations[k][i]:
+					## TEMP memory hack, make more elegant
+					assert ii._train_expr is not None
+					assert ii._gen_expr is not None
+					assert ii._A is not None
+
+					ii._train_expr._data2d = self._expr
+					ii._gen_expr._data2d = self._expr
+					ii._A._data2d = self._expr
+
 			## Concatenate components across lists
 
 			self._log(f"Combining and clustering components (k = {k})", tabs = 1)
@@ -362,7 +372,7 @@ class Refinement(RefinementObject):
 			self._log("Computing component-phenotype associations...", tabs = 1)
 
 			with Pool(self._n_proc) as pool:
-				self._phen_comp_ics[k]= (
+				self._phen_comp_ics[k] = (
 					pool.starmap(self._phen_comp_ic_worker, phencomp_args)
 				)
 

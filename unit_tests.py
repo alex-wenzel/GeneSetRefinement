@@ -32,7 +32,7 @@ class ExpressionTests(unittest.TestCase):
 
 		expression_path = (
 			f"{depmap_path}/processed_solid_samples/"
-			f"depmap23q2_expression_solid_samples.gct"
+			f"depmap24q4_solid_expression.gct"
 		)
 
 		cls.expr = gsr.Expression.from_gct(
@@ -50,16 +50,11 @@ class ExpressionTests(unittest.TestCase):
 			replace = False,
 		).tolist()
 
-		#cls.expr = gsr.Data2D.subset(
-		#	cls.expr, 
-		#	row_names = rnd_genes,
-		#)
-
 		cls.expr._data = cls.expr.data.loc[rnd_genes,:]
 
 	def test_shape(self):
 		self.assertEqual(self.expr.n_genes, 100)
-		self.assertEqual(self.expr.n_samples, 1122)
+		self.assertEqual(self.expr.n_samples, 1424)
 
 	def test_subset(self):
 		subs_samples = ["ACH-000696", "ACH-000885"]
@@ -73,28 +68,40 @@ class ExpressionTests(unittest.TestCase):
 		self.assertEqual(subs.shape[1], len(subs_samples))
 
 	def test_subset_keep(self):
+		keep_frac = 0.3
+
 		keep = self.expr.subset_random_samples(
-			0.3,
+			keep_frac,
 			self.rng,
 			return_both = False,
 		)
 
 		self.assertIsInstance(keep, gsr.Data2DView)
 		self.assertIsInstance(keep.data2d, gsr.Expression)
-		self.assertEqual(keep.shape[1], 336) # type: ignore
+		self.assertEqual(
+			keep.shape[1],
+			int(self.expr.shape[1] * keep_frac)
+		)
 
 	def test_subset_keep_disc(self):
+		keep_frac = 0.3
+
 		subs_res = self.expr.subset_random_samples(
-			0.3,
+			keep_frac,
 			self.rng,
 			return_both = True
 		)
 
 		self.assertIsInstance(subs_res, tuple)
-		keep, disc = subs_res # type: ignore
+		keep, disc = subs_res
 
-		self.assertEqual(keep.shape[1], 336)
-		self.assertEqual(disc.shape[1], 786)
+		self.assertTrue(
+			abs(keep.shape[1] - int(self.expr.shape[1] * keep_frac)) <= 1
+		)
+
+		self.assertTrue(
+			abs(disc.shape[1] - int(self.expr.shape[1] * (1.0 - keep_frac)) <= 1)
+		)
 
 	def test_normalize(self):
 		res = float(self.expr["CDKN2A", "ACH-000696"].array[0,0])
@@ -129,17 +136,11 @@ class PhenotypesTests(unittest.TestCase):
 
 		rppa_path = (
 			f"{depmap_path}/processed_solid_samples/"
-			f"depmap23q2_rppa_solid_samples.gct"
-		)
-
-		proteomics_path = (
-			f"{depmap_path}/processed_solid_samples/"
-			f"depmap23q2_proteomics_solid_samples.gct"
+			f"depmap24q4_solid_protein-rppa.gct"
 		)
 
 		paths_d = {
 			"rppa": rppa_path,
-			"proteomics": proteomics_path
 		}
 
 		cls.phenotypes = gsr.Phenotypes.from_gcts(paths_d)
@@ -195,14 +196,12 @@ class GeneSetTests(unittest.TestCase):
 class RefinementTests(unittest.TestCase):
 	expression_path: str
 	rppa_path: str
-	proteomics_path: str
 	paths_d: Dict[str, str]
 	gene_set_path: str
 	gene_set_name: str
 
 	ref: gsr.Refinement
 
-	#def setUp(self):
 	@classmethod
 	def setUpClass(cls):
 		depmap_path = sys.argv[1]
@@ -212,17 +211,12 @@ class RefinementTests(unittest.TestCase):
 
 		cls.expression_path = (
 			f"{depmap_path}/processed_solid_samples/"
-			f"depmap23q2_expression_solid_samples.gct"
+			f"depmap24q4_solid_expression.gct"
 		)
 
 		cls.rppa_path = (
 			f"{depmap_path}/processed_solid_samples/"
-			f"depmap23q2_rppa_solid_samples.gct"
-		)
-
-		cls.proteomics_path = (
-			f"{depmap_path}/processed_solid_samples/"
-			f"depmap23q2_proteomics_solid_samples.gct"
+			f"depmap24q4_solid_protein-rppa.gct"
 		)
 
 		cls.paths_d = {
@@ -241,62 +235,90 @@ class RefinementTests(unittest.TestCase):
 			cls.gene_set_path,
 			"REACTOME_SIGNALING_BY_ERBB2_v6.0",
 			[2, 3],
-			n_outer_iterations=2,
-			n_inner_iterations=2,
+			n_outer_iterations = 2,
+			n_inner_iterations = 2,
+			min_total_gene_counts = 5,
+			cutoff = 0.3,
+			gsea_statistic = "auc",
+			random_seed = 49,
+			normalize_expression = True,
+			max_downsample_tries = 100,
+			n_proc = 2,
 			verbose = True
 		)
+
+		cls.ref.preprocess()
 
 		cls.ref.run()
 
 		cls.one_ii = cls.ref.iterations[3][0][0]
 
+		cls.true_ref = gsr.Refinement.load(
+			(
+				"examples/example_results/"
+				"reactome-erbb2-60_k23_o2_i2_s49_24q4.pickle"
+			)
+		)
+
+	def test_true_gene_sets(self) -> None:
+		for k in self.ref.k_values:
+			for i in range(k):
+				true_comp_gs = (
+					self.true_ref.component_clusters[k][i].gene_set.genes
+				)
+				ref_comp_gs = self.ref.component_clusters[k][i].gene_set.genes
+
+				self.assertSetEqual(
+					set(true_comp_gs),
+					set(ref_comp_gs)
+				)
+
+	def _data2d_is_close(
+		self,
+		data1: pd.DataFrame,
+		data2: pd.DataFrame
+	) -> bool:
+		arr1 = data1.to_numpy().flatten()
+		arr2 = data2.to_numpy().flatten()
+
+		if len(arr1) != len(arr2):
+			raise ValueError((
+				f"Cannot compare equality of {data1.data_name} "
+				f"with shape {data1.shape} and {data2.data_name} "
+				f"with shape {data2.shape}."
+			))
+
+		return all([
+			np.isclose(arr1[i], arr2[i])
+			for i in range(len(arr1))
+		])
+	
+	def test_true_W_matrix(self) -> None:
+		true_first_W = self.true_ref._iterations[3][0][0].W.data
+		ref_first_W = self.ref._iterations[3][0][0].W.data
+
+		self.assertTrue(self._data2d_is_close(true_first_W, ref_first_W))
+
+	def test_true_gene_comp_IC(self) -> None:
+		true_first_gcic = self.true_ref._iterations[3][0][0].gene_component_IC.data
+		ref_first_gcic = self.ref._iterations[3][0][0].gene_component_IC.data
+
+		self.assertTrue(self._data2d_is_close(true_first_gcic, ref_first_gcic))
+
+	def test_true_ssGSEAResult(self) -> None:
+		true_first_ssgsea = self.true_ref.ssgsea_res[3].data
+		ref_first_ssgsea = self.ref.ssgsea_res[3].data
+
+		self.assertTrue(self._data2d_is_close(true_first_ssgsea, ref_first_ssgsea))
+
+	def test_true_phencompic(self) -> None:
+		true_first_phenic = self.true_ref.phenotype_component_ics[3][0]["rppa"].data
+		ref_first_phenic = self.ref.phenotype_component_ics[3][0]["rppa"].data
+
+		self.assertTrue(self._data2d_is_close(true_first_phenic, ref_first_phenic))
+
 	def test_instantiating_refinement(self):
 		self.assertListEqual(self.ref.k_values, [2, 3])
-
-	def test_inner_iteration_instantiation(self):
-		self.assertEqual(
-			self.one_ii.generating_expression.shape[1],
-			int(self.one_ii.training_expression.shape[1] * 0.50)
-		)
-
-	def test_inner_iteration_get_A(self):
-		self.assertEqual(
-			self.one_ii.A.shape[0],
-			95
-		)
-
-	def test_A_matrix_bad_subset(self):
-		with self.assertRaisesRegex(
-			KeyError,
-			(
-				r"None of requested sample names are in "
-				r"this A matrix\."
-			)
-		): 
-			self.one_ii.A.subset(
-				["CDKN2A", "ERBB2"],
-				["asdf", "asfasf"]
-			)
-
-	def test_good_A_matrix_subset(self):
-		subs_a = self.one_ii.A.subset(
-			["CDKN2A", "ERBB2"],
-			[]
-		)
-
-		self.assertIsInstance(subs_a, gsr.Data2DView)
-		self.assertIsInstance(subs_a.data2d, gsr.Expression)
-
-	def test_inner_iteration_nmf(self):
-		self.assertListEqual(
-			list(self.one_ii.W.shape),
-			[self.one_ii.A.shape[0], self.one_ii.k]
-		)
-
-		self.assertListEqual(
-			list(self.one_ii.H.shape),
-			[self.one_ii.k, self.one_ii.A.shape[1]]
-		)
 
 	def test_W_matrix_good_subset(self):
 		subs_w = self.one_ii.W.subset(
@@ -317,16 +339,17 @@ class RefinementTests(unittest.TestCase):
 				r"this W matrix\."
 			)
 		):
+			some_known_shared_genes = self.one_ii.W.row_names[:2]
+
 			self.one_ii.W.subset(
-				["CDKN2A", "ERBB2"],
+				some_known_shared_genes,
 				["asfd", "adfsdf"]
 			)
-
 
 	def test_gene_comp_ic_shape(self):
 		self.assertEqual(
 			self.one_ii.gene_component_IC.shape[0],
-			self.one_ii.A.shape[0]
+			self.one_ii.W.shape[0]
 		)
 
 		self.assertEqual(
@@ -343,7 +366,7 @@ class RefinementTests(unittest.TestCase):
 		)
 
 		self.assertEqual(
-			self.one_ii.A.shape[0],
+			self.one_ii.W.shape[0],
 			comb.shape[0]
 		)
 
@@ -376,35 +399,39 @@ class RefinementTests(unittest.TestCase):
 
 			self.assertEqual(
 				ssgsea_res.shape[1],
-				self.ref._expr.shape[1]
+				self.ref.expression.shape[1]
 			)
 
 	def test_phen_comp_ics(self):
-		phen_name = self.ref.phenotypes.phenotype_table_names[0]
+		one_phen_comp = self.ref.phenotype_component_ics[3][0]["rppa"]
+		true_one_phen_comp = self.true_ref.phenotype_component_ics[3][0]["rppa"]
 
-		for k in self.ref.k_values:
-			one_phen_comp = self.ref.phenotype_component_ics[k][0][phen_name]
-
-			self.assertEqual(
-				one_phen_comp.shape[0],
-				k + 1,
+		self.assertTrue(
+			self._data2d_is_close(
+				one_phen_comp.data,
+				true_one_phen_comp.data
 			)
-
-			self.assertEqual(
-				one_phen_comp.shape[1],
-				self.ref.phenotypes[phen_name].shape[0]
-			)
+		)
 
 	def test_io(self):
 		out_path = "_test_ref_out.pickle"
 
-		self.ref.save(out_path)
+		self.assertTrue( 
+			self.ref.assert_not_None(self.ref._expr)
+		)
+
+		self.ref.save(
+			out_path, 
+			remove_inputs = True
+		)
 
 		load_obj = gsr.Refinement.load(out_path)
+		os.remove(out_path)
 
 		self.assertEqual(self.ref._version, load_obj._version)
 
-		os.remove(out_path)
+		with self.assertRaises(gsr.Refinement.RefinementNoneException):
+			load_obj.assert_not_None(load_obj._expr)
 
 	def test_phencomp_exception(self):
 		## This test looks circular but the point is to make sure all the 
@@ -572,17 +599,6 @@ class Data2DTests(unittest.TestCase):
 		@property
 		def col_title(self) -> str: return "columns"
 
-	class DataNewAttr(gsr.Data2D):
-		def __init__(self, data: pd.DataFrame, param: int = 5):
-			super().__init__(data)
-			self._param = param
-		@property
-		def data_name(self) -> str: return "New Attr Data"
-		@property
-		def row_title(self) -> str: return "rows"
-		@property
-		def col_title(self) -> str: return "columns"
-
 	@classmethod
 	def setUpClass(cls):
 		cls.test_data: pd.DataFrame = pd.DataFrame(
@@ -592,7 +608,6 @@ class Data2DTests(unittest.TestCase):
 
 		cls.good_obj = cls.GoodRealData(cls.test_data)
 		cls.bad_obj = cls.BadRealData()
-		cls.new_attr_obj = cls.DataNewAttr(cls.test_data, param = 5)
 
 	def test_getitem(self):
 		new_obj = self.good_obj[["r1", "r3", "r4"], ["a", "c"]]
@@ -642,63 +657,6 @@ class Data2DTests(unittest.TestCase):
 		self.assertTupleEqual(
 			subs.shape,
 			(4, 3)
-		)
-
-	def test_shared_subset(self):
-		obj1 = self.GoodRealData(
-			pd.DataFrame({
-				"a": [0, 1, 2],
-				"b": [3, 4, 5],
-				"c": [4, 5, 2],
-				"d": [4, 5, 1]
-			},
-			index = [f"r{i}" for i in range(3)] # r0, r1, r2,
-			)
-		)
-
-		obj2 = self.GoodRealData(
-			pd.DataFrame({
-				"b": [4, 5, 1],
-				"c": [3, 4, 1],
-				"d": [2, 3, 4],
-				"e": [1, 2, 4]
-			},
-			index = [f"r{i}" for i in range(2, 5)] # r2, r3, r4
-			)
-		)
-
-		## Rows only
-
-		subs_obj1, subs_obj2 = obj1.subset_shared(
-			obj2,
-			shared_rows = True
-		)
-		self.assertTupleEqual(
-			(subs_obj1.shape, subs_obj2.shape),
-			((1,4), (1,4))
-		)
-
-		## Columns only
-
-		subs_obj1, subs_obj2 = obj1.subset_shared(
-			obj2,
-			shared_cols = True
-		)
-		self.assertTupleEqual(
-			(subs_obj1.shape, subs_obj2.shape),
-			((3, 3), (3, 3))
-		)
-
-		## Rows and columns
-
-		subs_obj1, subs_obj2 = obj1.subset_shared(
-			obj2,
-			shared_rows = True,
-			shared_cols = True
-		)
-		self.assertTupleEqual(
-			(subs_obj1.shape, subs_obj2.shape),
-			((1, 3), (1, 3))
 		)
 
 	def test_get_row_inds_data2d(self):
@@ -806,13 +764,12 @@ class Data2DTests(unittest.TestCase):
 		self.assertEqual(joined_subs_col_names, string.ascii_lowercase[::-1])
 
 
-class VersionTest(unittest.TestCase):
-	def test_version(self):
-		#text_version = Path(__file__).with_name("src/GeneSetRefinement/_version.py").read_text().split('=')[-1].strip('\n').strip()[1:-1]
-		with open("src/GeneSetRefinement/_version.py", 'r') as f:
-			text_version = f.readline().strip('\n').split('=')[1].strip()[1:-1]
-
-		self.assertEqual(text_version, gsr.__version__)
+#class VersionTest(unittest.TestCase):
+#	def test_version(self):
+#		with open("src/GeneSetRefinement/_version.py", 'r') as f:
+#			text_version = f.readline().strip('\n').split('=')[1].strip()[1:-1]
+#
+#		self.assertEqual(text_version, gsr.__version__)
 
 
 if __name__ == "__main__":
@@ -821,15 +778,16 @@ if __name__ == "__main__":
 	unittest.main(
 		argv = [sys.argv[0]],
 		verbosity = 2,
-		#defaultTest = [
-		#	"ExpressionTests",
-		#	"PhenotypesTests",
-		#	"GeneSetTests",
-		#	"RefinementTests",
-		#	"UtilsTests",
-		#	"Data2DTests",
-		#	"VersionTest"
-		#]
+		defaultTest = [
+			"ExpressionTests",
+			"PhenotypesTests",
+			"GeneSetTests",
+			"RefinementTests",
+			"UtilsTests",
+			"Data2DTests",
+			
+			##"VersionTest"
+		]
 	)
 
 

@@ -91,8 +91,15 @@ class InnerIteration(RefinementObject):
 
 		#self._pref = f"Inner iteration {self._i}.{self._j} -"
 		self._pref = f"(k={self._k}|i={self._i}|j={self._j}) -"
-
+	
+	def run(
+		self
+	) -> None:
+		"""
+		Driver function. 
+		"""
 		self._log(f"{self._pref} Creating generating set...")
+		self._train_expr = self.assert_not_None(self._train_expr)
 		self._gen_expr = self._train_expr.subset_random_samples(
 			0.5,
 			self._rng,
@@ -104,13 +111,7 @@ class InnerIteration(RefinementObject):
 
 		self._A = self._get_A()
 		self._A_samples = self._A.col_names
-	
-	def run(
-		self
-	) -> None:
-		"""
-		Driver function. 
-		"""
+
 		self._A = self.assert_not_None(self._A)
 
 		self._log(f"{self._pref} Computing NMF...")

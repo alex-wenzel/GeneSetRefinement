@@ -2,7 +2,6 @@
 Representation + access to dataframe(s) of phenotype data. 
 """
 
-from gp.data import GCT
 import pandas as pd
 from typing import Dict, List, Optional
 
@@ -134,7 +133,7 @@ class Phenotypes:
 			))
 
 		try:
-			phen_vec = pd.Series(phen_df.data.loc[phen_name,:]) #type: ignore
+			phen_vec = pd.Series(phen_df.data.loc[phen_name,:])
 		except KeyError:
 			raise KeyError((
 				f"Phenotype '{phen_name}' not found in table '{table_name}'."

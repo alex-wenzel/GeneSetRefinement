@@ -50,12 +50,16 @@ if __name__ == "__main__":
 		random_seed = 49,
 		normalize_expression = True,
 		max_downsample_tries = 100,
+		n_proc = 2,
 		verbose = True
 	)
+
+	ref.preprocess()
 
 	ref.run()
 
 	ref.save(
-		"example_results/reactome-erbb2-60_k23_o2_i2_s49_24q4.pickle"
+		"example_results/reactome-erbb2-60_k23_o2_i2_s49_24q4.pickle",
+		remove_inputs = True
 	)
 	

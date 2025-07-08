@@ -2,15 +2,19 @@ from __future__ import annotations
 
 from datetime import datetime
 from gp.data import GCT
+import json
+from multiprocessing import Process, Lock
 from multiprocessing.pool import Pool
 import numpy as np
 from numpy import in1d, full, absolute
 from numpy.random import random_sample, seed 
 import pandas as pd
+import psutil
 from scipy.signal import convolve2d
 from scipy.sparse import coo_matrix
 from scipy.stats import gaussian_kde, pearsonr
 import sys
+import time
 from typing import TYPE_CHECKING, Any, Callable, List, Literal, Optional, overload, Tuple, TypeVar
 import warnings
 
@@ -71,6 +75,36 @@ class Log:
 			old_log._ts_format,
 			base_tabs
 		)
+	
+
+class MemoryLog(Process):
+	def __init__(
+		self,
+		outpath: str,
+		lock: Lock, #type: ignore
+		freq: int
+	) -> None:
+		"""
+		"""
+		Process.__init__(self)
+		self._outpath = outpath
+		self._lock = lock
+		self._freq = freq
+	
+	def run(self):
+		mem_logs_l = []
+
+		while self._lock.acquire(block=False):
+			mem = psutil.virtual_memory().used/1e9
+			ts = int(datetime.now().timestamp())
+
+			mem_logs_l.append({"ts": ts, "gb": mem})
+
+			with open(self._outpath, 'w') as f:
+				json.dump(mem_logs_l, f)
+
+			self._lock.release()
+			time.sleep(self._freq)
 
 
 def load_gct(

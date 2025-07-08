@@ -2,7 +2,7 @@
 Object containing refinement results and functions that implement the workflow.
 """
 
-from multiprocessing import Pool
+from multiprocessing import Pool, Lock
 import numpy as np
 import os
 import pickle
@@ -21,7 +21,7 @@ from .InnerIteration import InnerIteration
 from .Phenotypes import Phenotypes
 from .PhenotypeComponentIC import PhenotypeComponentIC
 from .RefinementObject import RefinementObject
-from .Utils import Log, run_ssgsea_parallel, ssGSEAResult
+from .Utils import Log, run_ssgsea_parallel, ssGSEAResult, MemoryLog
 from pathlib import Path
 __version__ = Path(__file__).with_name("__init__.py").read_text().split('\n')[0].split('=')[-1].strip('\n').strip()[1:-1]
 
@@ -235,31 +235,6 @@ class Refinement(RefinementObject):
 		## Process RNG
 		self._rng = np.random.default_rng(self._seed)
 
-	
-	"""
-	(InnerIteration(
-		train,
-		self._gs,
-		i,
-		j,
-		k,
-		seeds[j],
-		Log.new_indented_log(self._log, 3),
-		max_downsample_tries = self._max_tries
-	),)
-	"""
-	
-	"""
-	@staticmethod
-	def _ii_worker(
-		ii: InnerIteration,
-	) -> InnerIteration:
-		###
-		###
-		ii.run()
-		return ii
-	"""
-
 	@staticmethod
 	def _ii_worker(
 		train: Data2DView[Expression],
@@ -322,6 +297,10 @@ class Refinement(RefinementObject):
 	def run(self):
 		"""
 		"""
+		mem_lock = Lock()
+		mem_log = MemoryLog("memory.json", mem_lock, 1)
+		mem_log.start()
+
 		self._expr = self.assert_not_None(self._expr)
 
 		for k in self._ks:
@@ -356,17 +335,6 @@ class Refinement(RefinementObject):
 
 				self._log("Preparing inner iterations...", tabs = 2)
 
-				#in_ii_l = [
-				#	(InnerIteration(
-				#		train,
-				#		self._gs,
-				#		i,
-				#		j,
-				#		k,
-				#		seeds[j],
-				#		Log.new_indented_log(self._log, 3),
-				#		max_downsample_tries = self._max_tries
-				#	),)
 				in_ii_l = [
 					(
 						train, self._gs, i, j, k, seeds[j], 
@@ -377,7 +345,6 @@ class Refinement(RefinementObject):
 
 				self._log("done", tabs = 2)
 
-				#with multiprocessing.get_context("spawn").Pool(self._n_proc) as pool:
 				with Pool(self._n_proc) as pool:
 					self._iterations[k].append(
 						pool.starmap(
@@ -469,6 +436,10 @@ class Refinement(RefinementObject):
 				)
 
 			self._log("done", tabs = 1)
+
+		mem_lock.acquire(block=True, timeout = 5)
+		mem_log.join()
+		mem_log.close()
 	
 	def save(
 		self,

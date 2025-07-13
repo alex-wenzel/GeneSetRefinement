@@ -1,9 +1,11 @@
 from pathlib import Path
 import sys
+from typing import List
 
 sys.path.insert(0, "../")
 
 from src.GeneSetRefinement.Refinement import Refinement
+from src.GeneSetRefinement.GeneSet import MSigDBQuery
 
 if __name__ == "__main__":
 	try:
@@ -33,14 +35,21 @@ if __name__ == "__main__":
 		"rppa": str(rppa_path),
 	}
 
-	gene_set_path = "input_gene_sets/REACTOME_SIGNALING_BY_ERBB2_v6.0.gmt"
-	gene_set_name = "REACTOME_SIGNALING_BY_ERBB2_v6.0"
+	#gene_set_path = "input_gene_sets/REACTOME_SIGNALING_BY_ERBB2_v6.0.gmt"
+	#gene_set_name = "REACTOME_SIGNALING_BY_ERBB2_v6.0"
+
+	input_set: List[MSigDBQuery] = [{
+		"collection": "c2.cp.reactome",
+		"release": "2025.1.Hs",
+		"gene_set_name": "REACTOME_SIGNALING_BY_ERBB2"
+	}]
 
 	ref = Refinement(
 		str(expr_path),
 		phens_d,
-		gene_set_path,
-		gene_set_name,
+		#gene_set_path,
+		#gene_set_name,
+		input_set,
 		[2, 3],
 		n_outer_iterations = 2,
 		n_inner_iterations = 2,

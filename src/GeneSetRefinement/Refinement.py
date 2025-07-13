@@ -16,7 +16,7 @@ from .ComponentCluster import ComponentCluster
 from .Data2D import Data2DView
 from .Expression import Expression
 from .GeneComponentIC import CombinedGeneComponentIC
-from .GeneSet import GeneSet
+from .GeneSet import GeneSet, MSigDBQuery
 from .InnerIteration import InnerIteration
 from .Phenotypes import Phenotypes
 from .PhenotypeComponentIC import PhenotypeComponentIC
@@ -32,8 +32,7 @@ class Refinement(RefinementObject):
 	_expr_path: str
 	_min_counts: int
 	_phen_paths: Dict[str, str]
-	_gs_path: str
-	_gs_name: str
+	_input_gene_sets: List[MSigDBQuery]
 	_ks: List[int]
 	_n_outer: int
 	_n_inner: int
@@ -43,6 +42,9 @@ class Refinement(RefinementObject):
 	_normalize: bool
 	_max_tries: int
 	_n_proc: int
+	_gene_set_cache_dir: str
+	_use_gene_set_cache: bool
+	_msigdb_url: str
 
 	_verbose: bool
 	_log: Log
@@ -64,8 +66,7 @@ class Refinement(RefinementObject):
 		self,
 		expression_gct_path: str,
 		phenotype_paths: Dict[str, str],
-		input_gmt_path: str,
-		input_gene_set_name: str,
+		input_gene_sets: List[MSigDBQuery],
 		k_values: List[int],
 		n_outer_iterations: int = 10,
 		n_inner_iterations: int = 50,
@@ -76,6 +77,9 @@ class Refinement(RefinementObject):
 		normalize_expression: bool = True,
 		max_downsample_tries: int = 100,
 		n_proc: int = 1,
+		gene_set_cache_dir: str = ".msigdb/",
+		use_gene_set_cache: bool = True,
+		msigdb_url: str = "https://data.broadinstitute.org/gsea-msigdb/msigdb/release/",
 		verbose = False
 	) -> None:
 		"""
@@ -175,8 +179,7 @@ class Refinement(RefinementObject):
 		self._expr_path = expression_gct_path
 		self._min_counts = min_total_gene_counts
 		self._phen_paths = phenotype_paths
-		self._gs_path = input_gmt_path
-		self._gs_name = input_gene_set_name
+		self._input_gene_sets = input_gene_sets
 		self._ks = k_values
 		self._n_outer = n_outer_iterations
 		self._n_inner = n_inner_iterations
@@ -186,6 +189,9 @@ class Refinement(RefinementObject):
 		self._normalize = normalize_expression
 		self._max_tries = max_downsample_tries
 		self._n_proc = n_proc
+		self._gene_set_cache_dir = gene_set_cache_dir
+		self._use_gene_set_cache = use_gene_set_cache
+		self._msigdb_url = msigdb_url
 
 		self._verbose = verbose
 		self._log = Log(self._verbose)
@@ -218,19 +224,39 @@ class Refinement(RefinementObject):
 				f"WARNING: Skipping normalization because "
 				f"`normalize_expression"
 			))
+
+		## Load and combine gene sets
+		self._log("Building combined input gene set...")
+		sub_gs: List[GeneSet] = [
+			GeneSet.from_msigdb(
+				msigdb_query,
+				msigdb_url = self._msigdb_url,
+				cache_dir = self._gene_set_cache_dir,
+				use_cache = self._use_gene_set_cache
+			)
+			for msigdb_query in self._input_gene_sets
+		]
+		
+		comb_gs_genes: List[str] = []
+		for gs in sub_gs:
+			for gene in gs.genes:
+				comb_gs_genes.append(gene)
+		comb_gs_genes = sorted(list(set(comb_gs_genes)))
+
+		description = "__".join([
+			gs.name for gs in sub_gs
+		])
+
+		self._gs = GeneSet(
+			"combined_input_gene_set",
+			comb_gs_genes,
+			description = description
+		)
 		
 		## Process phenotypes
 		self._log("Loading phenotype tables...")
 		self._phens = Phenotypes.from_gcts(self._phen_paths)
 		self._log("done")
-
-		## Process input gene set
-		self._log(f"Loading gene sets from {self._gs_path}...")
-		gmt = GeneSet.from_gmt(self._gs_path)
-		self._log("done")
-
-		self._log(f"Selecting {self._gs_name} to refine.")
-		self._gs = gmt[self._gs_name]
 
 		## Process RNG
 		self._rng = np.random.default_rng(self._seed)
@@ -273,8 +299,6 @@ class Refinement(RefinementObject):
 	) -> Dict[str, PhenotypeComponentIC]:
 		"""
 		"""
-		##TODO: Need to figure out how to use log
-
 		res_d = {}
 
 		ref._phens = ref.assert_not_None(ref._phens)

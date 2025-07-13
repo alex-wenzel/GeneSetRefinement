@@ -1,7 +1,7 @@
-__version__ = "1.2.5"
+__version__ = "1.3.0"
 from .Data2D import Data2D, Data2DView
 from .Expression import Expression
-from .GeneSet import GeneSet, read_gmt
+from .GeneSet import GeneSet, read_gmt, MSigDBQuery
 from .Phenotypes import Phenotypes
 from .Refinement import Refinement
 from .InnerIteration import InnerIteration

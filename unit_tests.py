@@ -11,13 +11,15 @@ import os
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'
 
+import glob
 import numpy as np
 import os
 import pandas as pd
 from pathlib import Path
 import string
 import sys
-from typing import Dict
+import time
+from typing import Dict, List
 import unittest
 
 import src.GeneSetRefinement as gsr
@@ -163,6 +165,8 @@ class PhenotypesTests(unittest.TestCase):
 
 class GeneSetTests(unittest.TestCase):
 	gene_set_path: str
+	cache_dir: str
+	gs_query: gsr.MSigDBQuery
 
 	@classmethod
 	def setUpClass(cls):
@@ -170,21 +174,64 @@ class GeneSetTests(unittest.TestCase):
 			"examples/input_gene_sets/REACTOME_SIGNALING_BY_ERBB2_v6.0.gmt"
 		)
 
+		cls.cache_dir = ".test_msigdb/"
+
+		cls.gs_query = {
+			"collection": "c2.cp.reactome",
+			"gene_set_name": "REACTOME_SIGNALING_BY_ERBB2",
+			"release": "2025.1.Hs"
+		}
+
+		if os.path.exists(cls.cache_dir):
+			keep_going = input((
+				f"WARNING: Test directory '{cls.cache_dir}' exists and will "
+				f"be deleted by this unit test. Type 'YES' to continue "
+				f"or anything else to quit." 
+			))
+
+			if keep_going.lower() != "yes":
+				print("Stopping.")
+				sys.exit(0)
+
+			for path in glob.glob(f"{cls.cache_dir}/*"):
+				os.remove(path)
+			os.removedirs(cls.cache_dir)
+		
+		os.makedirs(cls.cache_dir)
+
+	@classmethod
+	def tearDownClass(cls) -> None:
+		for path in glob.glob(f"{cls.cache_dir}/*"):
+			os.remove(path)
+		os.removedirs(cls.cache_dir)
+
 	def test_read_gmt(self):
 		gmt_d = gsr.read_gmt(self.gene_set_path)
 		
 		self.assertIn("ADCY4", gmt_d["REACTOME_SIGNALING_BY_ERBB2_v6.0"])
 
 	def test_from_gmt(self):
-		gs_d = gsr.GeneSet.from_gmt(self.gene_set_path)
+		gs = gsr.GeneSet.from_gmt(
+			self.gene_set_path,
+			"REACTOME_SIGNALING_BY_ERBB2_v6.0"
+		)
 
-		self.assertIn("ADCY4", gs_d["REACTOME_SIGNALING_BY_ERBB2_v6.0"].genes)
+		self.assertIn("ADCY4", gs.genes)
 
 	def test_to_gmt_row(self):
-		gs = gsr.GeneSet("a_gene_set", ["a", "b", "c", "d"])
+		gs = gsr.GeneSet(
+			"a_gene_set", 
+			["a", "b", "c", "d"],
+			description = "about_a_gene_set"
+		)
 
-		gmt_row_desc = gs.to_gmt_row(description = "about_a_gene_set")
-		gmt_row_no_desc = gs.to_gmt_row()
+		gs_no_desc = gsr.GeneSet(
+			"a_gene_set",
+			["a", "b", "c", "d"]
+		)
+
+		gmt_row_desc = gs.to_gmt_row()
+		gmt_row_no_desc = gs_no_desc.to_gmt_row()
 
 		self.assertEqual(
 			gmt_row_desc,
@@ -195,6 +242,39 @@ class GeneSetTests(unittest.TestCase):
 			gmt_row_no_desc,
 			"a_gene_set\ta_gene_set\ta\tb\tc\td"
 		)
+
+	def test_from_msigdb_cache(self):
+		cached_json_path = str((
+			Path(self.cache_dir) 
+			/ f"{self.gs_query['collection']}.v{self.gs_query['release']}.json"
+		))
+
+		self.assertFalse(os.path.exists(cached_json_path))
+
+		t0 = time.time()
+		gs1 = gsr.GeneSet.from_msigdb(
+			self.gs_query,
+			cache_dir = self.cache_dir,
+			use_cache = True
+		)
+		t1 = time.time()
+
+		msigdb_query_time = t1 - t0
+
+		self.assertTrue("ERBB2" in gs1.genes)
+		self.assertTrue(os.path.exists(cached_json_path))
+
+		t0 = time.time()
+		gs2 = gsr.GeneSet._get_gs_from_msigdb_json(
+			cached_json_path,
+			self.gs_query["gene_set_name"]
+		)
+		t1 = time.time()
+
+		local_load_time = t1 - t0
+
+		self.assertTrue("ERBB2" in gs2.genes)
+		self.assertTrue(local_load_time < msigdb_query_time)
 
 
 class RefinementTests(unittest.TestCase):
@@ -233,11 +313,16 @@ class RefinementTests(unittest.TestCase):
 
 		cls.gene_set_name = "REACTOME_SIGNALING_BY_ERBB2_v6.0"
 
+		cls.msigdb_query: List[gsr.MSigDBQuery] = [{
+			"collection": "c2.cp.reactome",
+			"release": "2025.1.Hs",
+			"gene_set_name": '_'.join(cls.gene_set_name.split('_')[:-1])
+		}]
+
 		cls.ref = gsr.Refinement(
 			cls.expression_path,
 			cls.paths_d,
-			cls.gene_set_path,
-			"REACTOME_SIGNALING_BY_ERBB2_v6.0",
+			cls.msigdb_query,
 			[2, 3],
 			n_outer_iterations = 2,
 			n_inner_iterations = 2,
@@ -326,7 +411,7 @@ class RefinementTests(unittest.TestCase):
 
 	def test_W_matrix_good_subset(self):
 		subs_w = self.one_ii.W.subset(
-			["CDKN1A", "ERBB2"],
+			["EGF", "ERBB2"],
 			["0", "2"]
 		)
 
@@ -484,8 +569,7 @@ class RefinementTests(unittest.TestCase):
 		never_run_ref = gsr.Refinement(
 			self.expression_path,
 			self.paths_d,
-			self.gene_set_path,
-			"REACTOME_SIGNALING_BY_ERBB2_v6.0",
+			self.msigdb_query,
 			[2, 3],
 			n_outer_iterations=2,
 			n_inner_iterations=2,
@@ -766,14 +850,6 @@ class Data2DTests(unittest.TestCase):
 		joined_subs_col_names = ''.join(subs_obj.col_names)
 
 		self.assertEqual(joined_subs_col_names, string.ascii_lowercase[::-1])
-
-
-#class VersionTest(unittest.TestCase):
-#	def test_version(self):
-#		with open("src/GeneSetRefinement/_version.py", 'r') as f:
-#			text_version = f.readline().strip('\n').split('=')[1].strip()[1:-1]
-#
-#		self.assertEqual(text_version, gsr.__version__)
 
 
 if __name__ == "__main__":

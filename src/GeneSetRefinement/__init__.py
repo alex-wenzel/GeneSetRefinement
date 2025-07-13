@@ -1,4 +1,4 @@
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 from .Data2D import Data2D, Data2DView
 from .Expression import Expression
 from .GeneSet import GeneSet, read_gmt, MSigDBQuery

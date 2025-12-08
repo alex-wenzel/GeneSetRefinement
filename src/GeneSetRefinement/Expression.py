@@ -5,6 +5,7 @@ refinement.
 
 from gp.data import GCT
 import pandas as pd
+from pathlib import Path
 
 from .Data2D import Data2D
 from .Utils import load_gct
@@ -23,7 +24,7 @@ class Expression(Data2D):
 	@classmethod
 	def from_gct(
 		cls,
-		gct_path: str,
+		gct_path: Path,
 		min_counts: int = 5
 	) -> "Expression":
 		"""

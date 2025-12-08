@@ -2,7 +2,7 @@
 Base class for objects that contain components of a refinement result.
 """
 
-from typing import cast, Optional, Type, TypeVar
+from typing import Callable, cast, Optional, Type, TypeVar
 
 
 class RefinementObject:
@@ -19,7 +19,22 @@ class RefinementObject:
 				f"Refinement.save() may have been called with "
 				f"`remove_inputs = True`"
 			))
+			super().__init__(msg)
 
+	class kNotSpecifiedException(Exception):
+		def __init__(
+			self,
+			func: Callable
+		) -> None:
+			"""
+			General purpose exception for when a function that accepts
+			`kRefinement` or `Refinement` is called with `Refinement` but
+			no `k`. 
+			"""
+			msg = (
+				f"Must provide a value of k when calling {func.__name__} "
+				f"with a Refinement object."
+			)
 			super().__init__(msg)
 
 	OBJ_T = TypeVar("OBJ_T")

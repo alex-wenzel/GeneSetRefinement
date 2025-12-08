@@ -4,11 +4,13 @@ from datetime import datetime
 from gp.data import GCT
 import json
 from multiprocessing import Process, Lock
+from multiprocessing.synchronize import Lock as LockT
 from multiprocessing.pool import Pool
 import numpy as np
 from numpy import in1d, full, absolute
 from numpy.random import random_sample, seed 
 import pandas as pd
+from pathlib import Path
 import psutil
 from scipy.signal import convolve2d
 from scipy.sparse import coo_matrix
@@ -31,16 +33,19 @@ class Log:
 	_verbose: bool
 	_ts_format: str
 	_base_tabs: int
+	_outpath: Path
 
 	def __init__(
 		self,
 		verbose: bool,
+		outpath: Path,
 		timestamp_format: str = "[%b %d, %Y %H:%M:%S]",
 		base_tabs = 0
 	) -> None:
 		self._verbose = verbose
 		self._ts_format = timestamp_format
 		self._base_tabs = base_tabs
+		self._outpath = outpath
 
 	def __call__(
 		self,
@@ -62,6 +67,10 @@ class Log:
 		
 		print(log_s, flush=True)
 
+		with open(self._outpath, 'a') as f:
+			f.write(log_s+'\n')
+			f.flush()
+
 	@classmethod
 	def new_indented_log(
 		cls,
@@ -72,6 +81,7 @@ class Log:
 		"""
 		return cls(
 			old_log._verbose,
+			old_log._outpath,
 			old_log._ts_format,
 			base_tabs
 		)
@@ -108,7 +118,7 @@ class MemoryLog(Process):
 
 
 def load_gct(
-	path: str
+	path: Path
 ) -> pd.DataFrame:
 	"""
 	Loads a GCT file using the GenePattern Python API and drops the 
@@ -126,7 +136,7 @@ def load_gct(
 	"""
 	with warnings.catch_warnings():
 		warnings.simplefilter("ignore")
-		data = GCT(path)
+		data = GCT(str(path))
 
 	data.index = data.index.droplevel("Description")
 

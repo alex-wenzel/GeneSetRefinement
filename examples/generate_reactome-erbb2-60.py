@@ -4,7 +4,7 @@ from typing import List
 
 sys.path.insert(0, "../")
 
-from src.GeneSetRefinement.Refinement import Refinement
+from src.GeneSetRefinement.Refinement import Refinement, kRefinement
 from src.GeneSetRefinement.GeneSet import MSigDBQuery
 
 if __name__ == "__main__":
@@ -35,9 +35,6 @@ if __name__ == "__main__":
 		"rppa": str(rppa_path),
 	}
 
-	#gene_set_path = "input_gene_sets/REACTOME_SIGNALING_BY_ERBB2_v6.0.gmt"
-	#gene_set_name = "REACTOME_SIGNALING_BY_ERBB2_v6.0"
-
 	input_set: List[MSigDBQuery] = [{
 		"collection": "c2.cp.reactome",
 		"release": "2025.1.Hs",
@@ -45,10 +42,10 @@ if __name__ == "__main__":
 	}]
 
 	ref = Refinement(
-		str(expr_path),
+		Path("example_results"),
+		"erbb2-60",
+		expr_path,
 		phens_d,
-		#gene_set_path,
-		#gene_set_name,
 		input_set,
 		[2, 3],
 		n_outer_iterations = 2,
@@ -66,9 +63,5 @@ if __name__ == "__main__":
 	ref.preprocess()
 
 	ref.run()
-
-	ref.save(
-		"example_results/reactome-erbb2-60_k23_o2_i2_s49_24q4.pickle",
-		remove_inputs = True
-	)
+	ref.save()
 	

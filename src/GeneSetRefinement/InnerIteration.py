@@ -1,3 +1,5 @@
+from multiprocessing.synchronize import Lock as TLock
+from multiprocessing import Queue
 import numpy as np
 import pandas as pd
 from typing import List, Optional, TYPE_CHECKING
@@ -93,12 +95,14 @@ class InnerIteration(RefinementObject):
 		self._pref = f"(k={self._k}|i={self._i}|j={self._j}) -"
 	
 	def run(
-		self
+		self,
+		log_q: Queue
 	) -> None:
 		"""
 		Driver function. 
 		"""
-		self._log(f"{self._pref} Creating generating set...")
+		#self._log(f"{self._pref} Creating generating set...")
+		log_q.put(f"{self._pref} Creating generating set...")
 		self._train_expr = self.assert_not_None(self._train_expr)
 		self._gen_expr = self._train_expr.subset_random_samples(
 			0.5,
@@ -107,29 +111,34 @@ class InnerIteration(RefinementObject):
 			max_tries = self._max_tries
 		)
 		self._gen_samples = self._gen_expr.col_names
-		self._log(f"{self._pref} done creating generating set.")
+		#self._log(f"{self._pref} done creating generating set.")
+		log_q.put(f"{self._pref} done creating generating set.")
 
 		self._A = self._get_A()
 		self._A_samples = self._A.col_names
 
 		self._A = self.assert_not_None(self._A)
 
-		self._log(f"{self._pref} Computing NMF...")
+		#self._log(f"{self._pref} Computing NMF...")
+		log_q.put(f"{self._pref} Computing NMF...")
 		self._nmf_result = NMFResult(
 			self._A,
 			self._k,
 			self._rng
 		)
 		self._nmf_result.run()
-		self._log(f"{self._pref} done running NMF.")
+		#self._log(f"{self._pref} done running NMF.")
+		log_q.put(f"{self._pref} done running NMF.")
 
-		self._log(f"{self._pref} computing gene/component IC...")
+		#self._log(f"{self._pref} computing gene/component IC...")
+		log_q.put(f"{self._pref} computing gene/component IC...")
 		self._gene_comp_ic = GeneComponentIC(
 			self._nmf_result,
 			self._i,
 			self._j
 		)
-		self._log(f"{self._pref} done computing gene/component IC.")
+		#self._log(f"{self._pref} done computing gene/component IC.")
+		log_q.put(f"{self._pref} done computing gene/component IC.")
 
 	def _get_A(self) -> Data2DView[Expression]:
 		"""

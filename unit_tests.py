@@ -25,6 +25,9 @@ import unittest
 import src.GeneSetRefinement as gsr
 
 
+TEMPDIR = Path("_temp_unittest")
+
+
 class ExpressionTests(unittest.TestCase):
 	expr: gsr.Expression
 	rng: np.random.Generator
@@ -36,7 +39,7 @@ class ExpressionTests(unittest.TestCase):
 		if depmap_path[-1] != '/':
 			depmap_path += '/'
 
-		expression_path = (
+		expression_path = Path(
 			f"{depmap_path}/processed_solid_samples/"
 			f"depmap24q4_solid_expression.gct"
 		)
@@ -278,7 +281,7 @@ class GeneSetTests(unittest.TestCase):
 
 
 class RefinementTests(unittest.TestCase):
-	expression_path: str
+	expression_path: Path
 	rppa_path: str
 	paths_d: Dict[str, str]
 	gene_set_path: str
@@ -293,7 +296,9 @@ class RefinementTests(unittest.TestCase):
 		if depmap_path[-1] != '/':
 			depmap_path += '/'
 
-		cls.expression_path = (
+		cls.ref_name = "RefinementTests_testref"
+
+		cls.expression_path = Path(
 			f"{depmap_path}/processed_solid_samples/"
 			f"depmap24q4_solid_expression.gct"
 		)
@@ -320,10 +325,12 @@ class RefinementTests(unittest.TestCase):
 		}]
 
 		cls.ref = gsr.Refinement(
+			TEMPDIR / Path("RefinementTests"),
+			cls.ref_name,
 			cls.expression_path,
 			cls.paths_d,
 			cls.msigdb_query,
-			[2, 3],
+			[2, 3], 
 			n_outer_iterations = 2,
 			n_inner_iterations = 2,
 			min_total_gene_counts = 5,
@@ -339,16 +346,23 @@ class RefinementTests(unittest.TestCase):
 		cls.ref.preprocess()
 
 		cls.ref.run()
+		cls.ref.save()
 
-		cls.one_ii = cls.ref.iterations[3][0][0]
+		_, cls.krefs = gsr.Refinement.load(TEMPDIR/Path("RefinementTests")/Path(cls.ref_name))
 
-		cls.true_ref = gsr.Refinement.load(
-			(
-				"examples/example_results/"
-				"reactome-erbb2-60_k23_o2_i2_s49_24q4.pickle"
-			)
+		#cls.one_ii = cls.ref.iterations[3][0][0]
+		k3_path = TEMPDIR / Path("RefinementTests") / Path(cls.ref_name) / f"k{3}.pickle"
+		cls.one_ii = gsr.kRefinement.load(k3_path).iterations[0][0]
+
+		cls.true_ref, cls.true_krefs = gsr.Refinement.load(
+			#Path(
+			#	"examples/example_results/"
+			#	"reactome-erbb2-60_k23_o2_i2_s49_24q4.pickle"
+			#)
+			Path("examples/example_results/erbb2-60")
 		)
 
+	"""
 	def test_true_gene_sets(self) -> None:
 		for k in self.ref.k_values:
 			for i in range(k):
@@ -356,6 +370,20 @@ class RefinementTests(unittest.TestCase):
 					self.true_ref.component_clusters[k][i].gene_set.genes
 				)
 				ref_comp_gs = self.ref.component_clusters[k][i].gene_set.genes
+
+				self.assertSetEqual(
+					set(true_comp_gs),
+					set(ref_comp_gs)
+				)
+	"""
+
+	def test_true_gene_sets(self) -> None:
+		for k in self.true_ref.k_values:
+			for i in range(k):
+				true_comp_gs = (
+					self.true_krefs[k].component_clusters[i].gene_set.genes
+				)
+				ref_comp_gs = self.krefs[k].component_clusters[i].gene_set.genes
 
 				self.assertSetEqual(
 					set(true_comp_gs),
@@ -383,26 +411,36 @@ class RefinementTests(unittest.TestCase):
 		])
 	
 	def test_true_W_matrix(self) -> None:
-		true_first_W = self.true_ref._iterations[3][0][0].W.data
-		ref_first_W = self.ref._iterations[3][0][0].W.data
+		#true_first_W = self.true_ref._iterations[3][0][0].W.data
+		#ref_first_W = self.ref._iterations[3][0][0].W.data
+		true_first_W = self.true_krefs[3].iterations[0][0].W.data
+		ref_first_W = self.krefs[3].iterations[0][0].W.data
 
 		self.assertTrue(self._data2d_is_close(true_first_W, ref_first_W))
 
 	def test_true_gene_comp_IC(self) -> None:
-		true_first_gcic = self.true_ref._iterations[3][0][0].gene_component_IC.data
-		ref_first_gcic = self.ref._iterations[3][0][0].gene_component_IC.data
+		#true_first_gcic = self.true_ref._iterations[3][0][0].gene_component_IC.data
+		#ref_first_gcic = self.ref._iterations[3][0][0].gene_component_IC.data
+		true_first_gcic = self.true_krefs[3].iterations[0][0].gene_component_IC.data
+		ref_first_gcic = self.krefs[3].iterations[0][0].gene_component_IC.data
 
 		self.assertTrue(self._data2d_is_close(true_first_gcic, ref_first_gcic))
 
 	def test_true_ssGSEAResult(self) -> None:
-		true_first_ssgsea = self.true_ref.ssgsea_res[3].data
-		ref_first_ssgsea = self.ref.ssgsea_res[3].data
+		#true_first_ssgsea = self.true_ref.ssgsea_res[3].data
+		#ref_first_ssgsea = self.ref.ssgsea_res[3].data
+
+		true_first_ssgsea = self.true_krefs[3].ssgsea_res.data
+		ref_first_ssgsea = self.krefs[3].ssgsea_res.data
 
 		self.assertTrue(self._data2d_is_close(true_first_ssgsea, ref_first_ssgsea))
 
 	def test_true_phencompic(self) -> None:
-		true_first_phenic = self.true_ref.phenotype_component_ics[3][0]["rppa"].data
-		ref_first_phenic = self.ref.phenotype_component_ics[3][0]["rppa"].data
+		#true_first_phenic = self.true_ref.phenotype_component_ics[3][0]["rppa"].data
+		#ref_first_phenic = self.ref.phenotype_component_ics[3][0]["rppa"].data
+
+		true_first_phenic = self.true_krefs[3].phenotype_component_ics[0]["rppa"].data
+		ref_first_phenic = self.krefs[3].phenotype_component_ics[0]["rppa"].data
 
 		self.assertTrue(self._data2d_is_close(true_first_phenic, ref_first_phenic))
 
@@ -449,9 +487,12 @@ class RefinementTests(unittest.TestCase):
 	def test_combined_gene_comp_ic_shape(self):
 		k = 3
 
-		comb = gsr.CombinedGeneComponentIC.from_refinement(
-			k,
-			self.ref
+		#comb = gsr.CombinedGeneComponentIC.from_refinement(
+		#	k,
+		#	self.ref
+		#)
+		comb = gsr.CombinedGeneComponentIC.from_krefinement(
+			self.krefs[k]
 		)
 
 		self.assertEqual(
@@ -467,8 +508,13 @@ class RefinementTests(unittest.TestCase):
 	def test_component_cluster_separation(self):
 		k = 3
 
+		#n_comps = sum([
+		#	len(self.ref.component_clusters[k][i].component_names)
+		#	for i in range(k)
+		#])
+
 		n_comps = sum([
-			len(self.ref.component_clusters[k][i].component_names)
+			len(self.krefs[k].component_clusters[i].component_names)
 			for i in range(k)
 		])
 
@@ -479,7 +525,8 @@ class RefinementTests(unittest.TestCase):
 
 	def test_all_ssgsea_res(self):
 		for k in self.ref.k_values:
-			ssgsea_res = self.ref.ssgsea_res[k]
+			#ssgsea_res = self.ref.ssgsea_res[k]
+			ssgsea_res = self.krefs[k].ssgsea_res
 
 			self.assertEqual(
 				ssgsea_res.shape[0],
@@ -492,8 +539,10 @@ class RefinementTests(unittest.TestCase):
 			)
 
 	def test_phen_comp_ics(self):
-		one_phen_comp = self.ref.phenotype_component_ics[3][0]["rppa"]
-		true_one_phen_comp = self.true_ref.phenotype_component_ics[3][0]["rppa"]
+		#one_phen_comp = self.ref.phenotype_component_ics[3][0]["rppa"]
+		#true_one_phen_comp = self.true_ref.phenotype_component_ics[3][0]["rppa"]
+		one_phen_comp = self.krefs[3].phenotype_component_ics[0]["rppa"]
+		true_one_phen_comp = self.true_krefs[3].phenotype_component_ics[0]["rppa"]
 
 		self.assertTrue(
 			self._data2d_is_close(
@@ -502,6 +551,8 @@ class RefinementTests(unittest.TestCase):
 			)
 		)
 
+	"""
+	This is redundant now since I have to load the krefs 
 	def test_io(self):
 		out_path = "_test_ref_out.pickle"
 
@@ -521,6 +572,7 @@ class RefinementTests(unittest.TestCase):
 
 		with self.assertRaises(gsr.Refinement.RefinementNoneException):
 			load_obj.assert_not_None(load_obj._expr)
+	"""
 
 	def test_phencomp_exception(self):
 		## This test looks circular but the point is to make sure all the 
@@ -567,6 +619,8 @@ class RefinementTests(unittest.TestCase):
 		
 	def test_to_gmt(self):
 		never_run_ref = gsr.Refinement(
+			Path("pointless_dir/"),
+			"dont_run",
 			self.expression_path,
 			self.paths_d,
 			self.msigdb_query,
@@ -855,6 +909,9 @@ class Data2DTests(unittest.TestCase):
 if __name__ == "__main__":
 	## https://stackoverflow.com/questions/2812218/
 	## problem-with-sys-argv1-when-unittest-module-is-in-a-script
+	if not os.path.isdir(TEMPDIR):
+		os.mkdir(TEMPDIR)
+
 	unittest.main(
 		argv = [sys.argv[0]],
 		verbosity = 2,

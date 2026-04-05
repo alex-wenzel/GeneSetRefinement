@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import List, TYPE_CHECKING
+from typing import List, Optional, overload, TYPE_CHECKING
 
 from .Data2D import Data2DView
 from .GeneComponentIC import CombinedGeneComponentIC
@@ -8,7 +8,7 @@ from .GeneSet import GeneSet
 from .RefinementObject import RefinementObject
 
 if TYPE_CHECKING:
-	from .Refinement import Refinement
+	from .Refinement import Refinement, kRefinement
 
 
 class ComponentCluster(RefinementObject):
@@ -21,20 +21,18 @@ class ComponentCluster(RefinementObject):
 
 	def __init__(
 		self,
-		refinement: "Refinement",
+		refinement: "kRefinement",
 		comb_gene_comp_ics: CombinedGeneComponentIC,
-		k: int,
-		cluster_number: int
+		cluster_number: int,
 	) -> None:
 		"""
 		"""
-		self._k = k
+		self._k = refinement.k
 		self._cluster_number = cluster_number
-		self._cutoff = refinement._cutoff
+		self._cutoff = refinement.cutoff
 
-		## Subset gene/comp IC
 		cluster_labels = pd.Series(
-			refinement.kmeans[self._k].labels_,
+			refinement.kmeans.labels_,
 			index = comb_gene_comp_ics.col_names
 		)
 

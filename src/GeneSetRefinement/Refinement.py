@@ -2,7 +2,9 @@
 Object containing refinement results and functions that implement the workflow.
 """
 
-from multiprocessing import Pool, Lock
+import glob
+from multiprocessing import Pool, Lock, Queue, Manager
+from multiprocessing.synchronize import Lock as TLock
 import numpy as np
 import os
 import pickle
@@ -10,7 +12,7 @@ import psutil
 import subprocess
 from sklearn.cluster import KMeans
 import sys
-from typing import Dict, List, Optional, cast
+from typing import Dict, List, Optional, cast, Tuple
 
 from .ComponentCluster import ComponentCluster
 from .Data2D import Data2DView
@@ -26,10 +28,392 @@ from pathlib import Path
 __version__ = Path(__file__).with_name("__init__.py").read_text().split('\n')[0].split('=')[-1].strip('\n').strip()[1:-1]
 
 
+class kRefinement(RefinementObject):
+	_version: str = __version__
+
+	_k: int
+	_all_res_dir: Path
+	_ref_name: str
+	_expr: Optional[Expression]
+	_phens: Optional[Phenotypes]
+	_gs: GeneSet
+	_n_outer: int
+	_n_inner: int
+	_max_tries: int
+	_cutoff: float
+	_gsea_stat: str
+	_n_proc: int
+	_rng: np.random.Generator
+	_log: Log
+	_verbose: bool
+
+	_iterations: List[List[InnerIteration]]
+	_test_samples: List[List[str]]
+	_kmeans: KMeans
+	_component_clusters: Dict[int, ComponentCluster]
+	_all_ssgsea_res: ssGSEAResult
+	_phen_comp_ics: List[Dict[str, PhenotypeComponentIC]]
+
+	def __init__(
+		self,
+		k: int,
+		ref: "Refinement"
+	) -> None:
+		"""
+		"""
+		self._k = k
+		self._all_res_dir = ref._all_res_dir
+		self._ref_name = ref.name
+		self._expr = ref.expression
+		self._phens = ref.phenotypes
+		self._gs = ref.gene_set
+		self._n_outer = ref.n_outer_iterations
+		self._n_inner = ref.n_inner_iterations	
+		self._max_tries = ref.max_downsample_tries
+		self._cutoff = ref.cutoff
+		self._gsea_stat = ref.gsea_stat
+		self._n_proc = ref.n_proc
+		self._rng = ref.rng
+		self._log = ref.log
+		self._verbose = ref.verbose
+
+	@staticmethod
+	def _ii_worker(
+		train: Data2DView[Expression],
+		gs: GeneSet,
+		i: int,
+		j: int,
+		k: int,
+		seed: int,
+		log: Log,
+		max_tries: int,
+		log_q: Queue
+	) -> InnerIteration:
+		"""
+		"""
+		ii = InnerIteration(
+			train,
+			gs,
+			i,
+			j,
+			k,
+			seed,
+			log,
+			max_downsample_tries=max_tries
+		)
+
+		ii.run(log_q)
+
+		return ii
+	
+	@staticmethod
+	def _phen_comp_ic_worker(
+		i: int,
+		ref: "kRefinement",
+		log: Log
+	) -> Dict[str, PhenotypeComponentIC]:
+		"""
+		"""
+		res_d = {}
+
+		ref._phens = ref.assert_not_None(ref._phens)
+
+		pref = f"(k={ref.k}|i={i}) - "
+		
+		for phen_name in ref._phens.phenotype_table_names:
+			log((
+				f"{pref} Starting component/IC computation "
+				f"for '{phen_name}'..."
+			))
+
+			res_d[phen_name] = (
+				PhenotypeComponentIC.from_krefinement(
+					ref, i, phen_name
+				)
+			)
+
+			log(f"{pref} done")
+		
+		return res_d
+	
+	@staticmethod
+	def _mp_log_listener(
+		q: Queue,
+		log: Log
+	) -> None:
+		"""
+		"""
+		while True:
+			msg: str = q.get()
+			if msg == "LOG_STOP":
+				break
+			log(msg)
+
+	def run(
+		self
+	) -> None:
+		"""
+		"""
+		self._log(f"Starting refinement with k = {self._k}")
+
+		self._iterations = []
+		self._test_samples = []
+
+		self._expr = self.assert_not_None(self._expr)
+
+		for i in range(self._n_outer):
+			self._log(f"Starting outer iteration {i}...", tabs = 1)
+			self._log(f"Generating train/test sets", tabs = 2)
+			train, test = self._expr.subset_random_samples(
+				0.67,
+				rng = self._rng,
+				return_both = True,
+				no_zero_rows = True,
+				max_tries = self._max_tries
+			)
+			self._log("done", tabs = 2)
+
+			## TODO: Can rewrite test samples as Data2DView lists
+			self._test_samples.append(
+				test.col_names
+			)
+
+			seeds: List[int] = self._rng.integers(
+				low = 1,
+				high = np.iinfo(np.int32).max,
+				size = self._n_inner
+			).tolist()
+
+			self._log("Preparing inner iterations...", tabs = 2)
+
+			manager = Manager()
+			log_q = manager.Queue()
+
+			in_ii_l = [
+				(
+					train, self._gs, i, j, self._k, seeds[j],
+					Log.new_indented_log(self._log, 3),
+					self._max_tries, log_q
+				)
+				for j in range(self._n_inner)
+			]
+
+			self._log("done", tabs = 2)
+
+			lpool = Pool(1)
+			lproc = lpool.apply_async(
+				kRefinement._mp_log_listener,
+				(log_q, self._log)
+			)
+
+			with Pool(self._n_proc) as pool:
+				self._iterations.append(
+					pool.starmap(
+						kRefinement._ii_worker,
+						in_ii_l
+					)
+				)
+
+			log_q.put("LOG_STOP")
+			lpool.close()
+			lpool.join()
+
+			for ii in self._iterations[i]:
+				## TEMP memory hack, make more elegant
+				assert ii._train_expr is not None
+				assert ii._gen_expr is not None
+				assert ii._A is not None
+				assert ii._nmf_result._A is not None
+
+				ii._train_expr._data2d = self._expr
+				ii._gen_expr._data2d = self._expr
+				ii._A._data2d = self._expr
+				ii._nmf_result._A._data2d = self._expr
+
+		## Concatenate components across lists
+
+		self._log(
+			f"Combining and clustering components (k = {self._k})",
+			tabs = 1
+		)
+
+		comb_gene_comp_ics = CombinedGeneComponentIC.from_krefinement(self)
+
+		## Cluster components
+
+		self._kmeans = KMeans(
+			n_clusters = self._k,
+			random_state = self._rng.integers(
+				low = 1,
+				high = np.iinfo(np.int32).max
+			),
+			n_init = "auto"
+		).fit(comb_gene_comp_ics.data.T)
+
+		self._component_clusters = {}
+
+		for cluster_number in range(self._k):
+			self._component_clusters[cluster_number] = ComponentCluster(
+				self,
+				comb_gene_comp_ics,
+				cluster_number
+			)
+
+		self._log("done", tabs = 1)
+
+		self._log((
+			f"Computing test set enrichment score associations with "
+			f"phenotype (k = {self._k})"
+		))
+
+		gene_sets = (
+			[self._gs] + [
+				comp_clust.gene_set
+				for comp_clust in self._component_clusters.values()
+			]
+		)
+		self._log("done", tabs = 1)
+
+		self._log((
+			f"Running ssGSEA on test scores"
+		), tabs = 1)
+
+		self._all_ssgsea_res = run_ssgsea_parallel(
+			self._expr,
+			gene_sets,
+			statistic = self._gsea_stat,
+			n_job = self._n_proc
+		)
+
+		self._log("done", tabs = 1)
+
+		phencomp_args = [
+			(i, self, Log(self._verbose, self._log._outpath, base_tabs = 2))
+			for i in range(self._n_outer)
+		]
+
+		self._log("Computing component-phenotype associations...", tabs = 1)
+
+		with Pool(self._n_proc) as pool:
+			self._phen_comp_ics = (
+				pool.starmap(
+					self._phen_comp_ic_worker,
+					phencomp_args
+				)
+			)
+
+		self._log("done", tabs = 1)
+
+	def save(
+		self,
+		remove_inputs: bool = True
+	) -> None:
+		"""
+		Saves a standard dictionary containing class field data in a 
+		Python pickle file. By default, input gene expression and phenotype
+		data are removed. 
+		"""
+		output_dir = self._all_res_dir / Path(self._ref_name)
+
+		if not os.path.isdir(output_dir):
+			os.makedirs(output_dir)
+
+		output_file_name = output_dir / Path(f"k{self._k}.pickle")
+
+		if remove_inputs:
+			save_iters = self._iterations
+			save_expr = self._expr
+			save_phens = self._phens
+
+			self._expr = None
+			self._phens = None
+
+			for i in range(self._n_outer):
+				for j in range(self._n_inner):
+					ii = self._iterations[i][j]
+
+					ii._A = None
+					ii._nmf_result._A = None
+					ii._train_expr = None
+					ii._gen_expr = None
+
+			with open(output_file_name, 'wb') as f:
+				pickle.dump(self, f)
+
+			self._iterations = save_iters
+			self._expr = save_expr
+			self._phens = save_phens
+
+		else:
+			with open(output_file_name, 'wb') as f:
+				pickle.dump(self, f)
+
+	class kRefinementVersionWarning(Warning):
+		def __init__(
+			self,
+			cls_version: str,
+			file_version: str
+		) -> None:
+			"""
+			"""
+			msg = ""
+			msg += f"Loading a kRefinement object from version {file_version} "
+			msg += f"using kRefinement version {cls_version}. This may result "
+			msg += f"in errors or unexpected behavior."
+
+			super().__init__(msg)
+
+	@classmethod
+	def load(
+		cls,
+		path: Path
+	) -> "kRefinement":
+		with open(path, 'rb') as f:
+			obj = cast(kRefinement, pickle.load(f))
+
+		if obj._version != cls._version:
+			raise cls.kRefinementVersionWarning(cls._version, obj._version)
+
+		return obj
+
+	## Config/input properties
+
+	@property
+	def k(self) -> int: return self._k
+	@property
+	def cutoff(self) -> float: return self._cutoff
+	@property
+	def phenotypes(self) -> Phenotypes: 
+		return self.assert_not_None(self._phens)
+	@property
+	def verbose(self) -> bool: return self._verbose
+
+	## Results properties
+	@property
+	def iterations(self) -> List[List[InnerIteration]]:
+		return self._iterations
+	@property
+	def kmeans(self) -> KMeans:
+		return self._kmeans
+	@property
+	def ssgsea_res(self) -> ssGSEAResult:
+		return self._all_ssgsea_res
+	@property
+	def test_samples(self) -> List[List[str]]: return self._test_samples
+	@property
+	def component_clusters(self) -> Dict[int, ComponentCluster]: 
+		return self._component_clusters
+	@property
+	def phenotype_component_ics(self) -> List[Dict[str, PhenotypeComponentIC]]:
+		return self._phen_comp_ics
+
+
 class Refinement(RefinementObject):
 	_version: str = __version__
 
-	_expr_path: str
+	_all_res_dir: Path
+	_ref_name: str
+	_expr_path: Path
 	_min_counts: int
 	_phen_paths: Dict[str, str]
 	_input_gene_sets: List[MSigDBQuery]
@@ -54,17 +438,11 @@ class Refinement(RefinementObject):
 	_gs: GeneSet
 	_rng: np.random.Generator
 
-	## Dict keys are values of k
-	_iterations: Dict[int, List[List[InnerIteration]]]
-	_test_samples: Dict[int, List[List[str]]]
-	_kmeans: Dict[int, KMeans]
-	_component_clusters: Dict[int, Dict[int, ComponentCluster]]
-	_all_ssgsea_res: Dict[int, ssGSEAResult]
-	_phen_comp_ics: Dict[int, List[Dict[str, PhenotypeComponentIC]]]
-
 	def __init__(
 		self,
-		expression_gct_path: str,
+		all_results_dir: Path,
+		refinement_name: str,
+		expression_gct_path: Path,
 		phenotype_paths: Dict[str, str],
 		input_gene_sets: List[MSigDBQuery],
 		k_values: List[int],
@@ -176,6 +554,8 @@ class Refinement(RefinementObject):
 
 
 		## Save parameters and paths
+		self._all_res_dir = all_results_dir
+		self._ref_name = refinement_name
 		self._expr_path = expression_gct_path
 		self._min_counts = min_total_gene_counts
 		self._phen_paths = phenotype_paths
@@ -194,14 +574,19 @@ class Refinement(RefinementObject):
 		self._msigdb_url = msigdb_url
 
 		self._verbose = verbose
-		self._log = Log(self._verbose)
 
-		self._iterations = {}
-		self._test_samples = {}
-		self._kmeans = {}
-		self._component_clusters = {}
-		self._all_ssgsea_res = {}
-		self._phen_comp_ics = {}
+		self._log = Log(
+			self._verbose, 
+			Path(f"{self._ref_name}_log.txt")
+		)
+
+	def _get_output_directory(
+		self
+	) -> Path:
+		"""
+		Folder with the `k` pickle files.
+		"""
+		return self._all_res_dir / Path(self.name)
 
 	def preprocess(self) -> None:
 		"""
@@ -261,64 +646,9 @@ class Refinement(RefinementObject):
 		## Process RNG
 		self._rng = np.random.default_rng(self._seed)
 
-	@staticmethod
-	def _ii_worker(
-		train: Data2DView[Expression],
-		gs: GeneSet,
-		i: int,
-		j: int,
-		k: int,
-		seed: int,
-		log: Log,
-		max_tries: int
-	) -> InnerIteration:
-		"""
-		"""
-		ii = InnerIteration(
-			train,
-			gs,
-			i,
-			j,
-			k,
-			seed,
-			log,
-			max_downsample_tries=max_tries
-		)
-
-		ii.run()
-
-		return ii
-		
-	
-	@staticmethod
-	def _phen_comp_ic_worker(
-		k: int,
-		i: int,
-		ref: "Refinement",
-		log: Log
-	) -> Dict[str, PhenotypeComponentIC]:
-		"""
-		"""
-		res_d = {}
-
-		ref._phens = ref.assert_not_None(ref._phens)
-
-		pref = f"(k={k}|i={i}) -"
-
-		for phen_name in ref._phens.phenotype_table_names:
-			log(f"{pref} Starting component/IC computation for '{phen_name}'...")
-
-			res_d[phen_name] = (
-				PhenotypeComponentIC.from_refinement(
-					k, i, phen_name, ref
-				)
-			)
-
-			log(f"{pref} done")
-
-		return res_d
-
-	def run(self):
+	def run(
+		self,
+	):
 		"""
 		"""
 		mem_lock = Lock()
@@ -328,180 +658,44 @@ class Refinement(RefinementObject):
 		self._expr = self.assert_not_None(self._expr)
 
 		for k in self._ks:
-			## Generate components and gene/component ICs
-			self._log(f"Starting refinement with k = {k}")
-
-			self._iterations[k] = []
-			self._test_samples[k] = []
-
-			for i in range(self._n_outer):
-				self._log(f"Starting outer iteration {i}...", tabs = 1)
-				self._log(f"Generating train/test sets", tabs = 2)
-				train, test = self._expr.subset_random_samples(
-					0.67,
-					rng = self._rng,
-					return_both = True,
-					no_zero_rows = True,
-					max_tries = self._max_tries
-				)
-				self._log("done", tabs = 2)
-
-				## TODO: Can rewrite test samples as Data2DView lists
-				self._test_samples[k].append(
-					test.col_names
-				)
-
-				seeds = self._rng.integers(
-					low = 1,
-					high = np.iinfo(np.int32).max,
-					size = self._n_inner
-				)
-
-				self._log("Preparing inner iterations...", tabs = 2)
-
-				in_ii_l = [
-					(
-						train, self._gs, i, j, k, seeds[j], 
-						Log.new_indented_log(self._log, 3), self._max_tries
-					)
-					for j in range(self._n_inner)
-				]
-
-				self._log("done", tabs = 2)
-
-				with Pool(self._n_proc) as pool:
-					self._iterations[k].append(
-						pool.starmap(
-							self._ii_worker, 
-							in_ii_l
-						)
-					)
-
-				for ii in self._iterations[k][i]:
-					## TEMP memory hack, make more elegant
-					assert ii._train_expr is not None
-					assert ii._gen_expr is not None
-					assert ii._A is not None
-					assert ii._nmf_result._A is not None
-
-					ii._train_expr._data2d = self._expr
-					ii._gen_expr._data2d = self._expr
-					ii._A._data2d = self._expr
-					ii._nmf_result._A._data2d = self._expr
-
-			## Concatenate components across lists
-
-			self._log(f"Combining and clustering components (k = {k})", tabs = 1)
-
-			comb_gene_comp_ics = CombinedGeneComponentIC.from_refinement(
-				k,
-				self
-			)
-
-			## Cluster components
-
-			self._kmeans[k] = KMeans(
-				n_clusters = k,
-				random_state = self._rng.integers(
-					low = 1, 
-					high = np.iinfo(np.int32).max
-				),
-				n_init = "auto"
-			).fit(comb_gene_comp_ics.data.T)
-
-			self._component_clusters[k] = {}
-
-			for cluster_number in range(k):
-				self._component_clusters[k][cluster_number] = ComponentCluster(
-					self,
-					comb_gene_comp_ics,
-					k,
-					cluster_number
-				)
-
-			self._log("done", tabs = 1)
-
-			self._log((
-				f"Computing test set enrichment score associations with "
-				f"phenotype (k = {k})"
-			), tabs = 1)
-
-			gene_sets = (
-				[self._gs] + [
-					comp_clust.gene_set
-					for comp_clust in self._component_clusters[k].values()
-				]
-			)
-			self._log("done", tabs = 1)
-
-			self._log((
-				f"Running ssGSEA on test scores"
-			), tabs = 1)
-
-			self._all_ssgsea_res[k] = run_ssgsea_parallel(
-				self._expr,
-				gene_sets,
-				statistic = self._gsea_stat,
-				n_job = self._n_proc
-			)
-
-			self._log("done", tabs = 1)
-			
-			phencomp_args = [
-				(k,i,self, Log(self._verbose, base_tabs = 2)) 
-				for i in range(self._n_outer)
-			]
-
-			self._log("Computing component-phenotype associations...", tabs = 1)
-
-			with Pool(self._n_proc) as pool:
-				self._phen_comp_ics[k] = (
-					pool.starmap(self._phen_comp_ic_worker, phencomp_args)
-				)
-
-			self._log("done", tabs = 1)
+			kref = kRefinement(k, self)
+			kref.run()
+			kref.save(remove_inputs=True)
 
 		mem_lock.acquire(block=True, timeout = 5)
 		mem_log.join()
 		mem_log.close()
-	
+
 	def save(
 		self,
-		path: str,
 		remove_inputs: bool = True
 	) -> None:
 		"""
-		Saves a standard dictionary containing class field data in a 
-		Python pickle file. By default, input gene expression and phenotype
-		data are removed. 
+		Only saves the configuration.
 		"""
+		output_dir = self._get_output_directory()
+
+		if not os.path.isdir(output_dir):
+			os.makedirs(output_dir)
+
+		#with open(output_dir/Path("config.pickle"), 'wb') as f:
+		#	pickle.dump(self, f)
+
 		if remove_inputs:
-			save_iters = self._iterations
 			save_expr = self._expr
 			save_phens = self._phens
 
-			self._expr = None 
+			self._expr = None
 			self._phens = None
 
-			for k in self._ks:
-				for i in range(self._n_outer):
-					for j in range(self._n_inner):
-						ii = self._iterations[k][i][j]
-
-						ii._A = None
-						ii._nmf_result._A = None
-						ii._train_expr = None
-						ii._gen_expr = None
-
-			with open(path, 'wb') as f:
+			with open(output_dir/Path("config.pickle"), 'wb') as f:
 				pickle.dump(self, f)
 
-			self._iterations = save_iters
 			self._expr = save_expr
 			self._phens = save_phens
 
 		else:
-			with open(path, 'wb') as f:
+			with open(output_dir/Path("config.pickle"), 'wb') as f:
 				pickle.dump(self, f)
 
 	class RefinementVersionWarning(Warning):
@@ -522,19 +716,28 @@ class Refinement(RefinementObject):
 	@classmethod
 	def load(
 		cls,
-		path: str
-	) -> "Refinement":
-		with open(path, 'rb') as f:
-			obj = cast(Refinement, pickle.load(f))
+		path: Path
+	) -> "Tuple[Refinement, Dict[int, kRefinement]]":
+		"""
+		"""
+		## Load config (Refinement)
+		with open(path/Path("config.pickle"), 'rb') as f:
+			ref = cast(Refinement, pickle.load(f))
 
-		if obj._version != cls._version:
-			raise cls.RefinementVersionWarning(cls._version, obj._version)
+		## Load results (kRefinement)
+		res_d: Dict[int, kRefinement] = {}
 
-		return obj
+		for kpath in glob.glob(f"{str(path)}/k*.pickle"):
+			with open(kpath, 'rb') as f:
+				kref = cast(kRefinement, pickle.load(f))
+
+			res_d[kref.k] = kref
+
+		return (ref, res_d)
 	
 	def to_gmt(
 		self,
-		out_path: str
+		out_path: str,
 	) -> None:
 		"""
 		Creates a GMT with the original gene set followed by each of the
@@ -548,9 +751,15 @@ class Refinement(RefinementObject):
 		gmt_rows_l: List[str] = []
 
 		for k in self._ks:
+			kref = k_gs = kRefinement.load(
+				self._get_output_directory() / Path(f"k{k}.pickle")
+			)
+
 			for comp_num in range(k):
 				try:
-					k_gs = self._component_clusters[k][comp_num].gene_set
+					#k_gs = self._component_clusters[k][comp_num].gene_set
+					k_gs = kref.component_clusters[comp_num].gene_set
+				##TODO: These exceptions probably aren't relevant/helpful: update
 				except AttributeError:
 					raise RuntimeError((
 						f"No refined gene sets found. Has refinement been run?"
@@ -570,40 +779,39 @@ class Refinement(RefinementObject):
 		with open(out_path, 'w') as f:
 			f.write(out_data)
 
+	## Inputs + options properties
+
 	@property
 	def expression(self) -> Expression:
 		return self.assert_not_None(self._expr)
-
-	@property
-	def iterations(self) -> Dict[int, List[List[InnerIteration]]]:
-		return self._iterations
-
-	@property
-	def k_values(self) -> List[int]: return self._ks
-
-	@property
-	def component_clusters(self) -> Dict[int, Dict[int, ComponentCluster]]:
-		return self._component_clusters
-
-	@property
-	def kmeans(self) -> Dict[int, KMeans]: return self._kmeans
-
-	@property
-	def ssgsea_res(self) -> Dict[int, ssGSEAResult]: return self._all_ssgsea_res
-
-	@property
-	def test_samples(self) -> Dict[int, List[List[str]]]: 
-		return self._test_samples
-
 	@property
 	def phenotypes(self) -> Phenotypes: 
 		return self.assert_not_None(self._phens)
-
 	@property
-	def phenotype_component_ics(
-		self
-	) -> Dict[int, List[Dict[str, PhenotypeComponentIC]]]:
-		return self._phen_comp_ics
+	def gene_set(self) -> GeneSet:
+		return self._gs
+	@property
+	def k_values(self) -> List[int]: return self._ks
+	@property
+	def n_outer_iterations(self) -> int: return self._n_outer
+	@property
+	def n_inner_iterations(self) -> int: return self._n_inner
+	@property
+	def max_downsample_tries(self) -> int: return self._max_tries
+	@property
+	def cutoff(self) -> float: return self._cutoff
+	@property
+	def gsea_stat(self) -> str: return self._gsea_stat
+	@property
+	def rng(self) -> np.random.Generator: return self._rng
+	@property
+	def log(self) -> Log: return self._log
+	@property
+	def n_proc(self) -> int: return self._n_proc
+	@property
+	def verbose(self) -> bool: return self._verbose
+	@property
+	def name(self) -> str: return self._ref_name
 
 
 

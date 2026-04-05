@@ -1,13 +1,14 @@
+import inspect
 import numpy as np
 import pandas as pd
-from typing import List, TYPE_CHECKING
+from typing import List, Optional, overload, TYPE_CHECKING
 
 from .Data2D import Data2D
 from .NMFResult import NMFResult
 from .Utils import compute_information_coefficient
 
 if TYPE_CHECKING:
-	from .Refinement import Refinement
+	from .Refinement import Refinement, kRefinement
 
 
 class GeneComponentIC(Data2D):
@@ -64,18 +65,16 @@ class GeneComponentIC(Data2D):
 
 class CombinedGeneComponentIC(Data2D):
 	@classmethod
-	def from_refinement(
+	def from_krefinement(
 		cls,
-		k: int,
-		refinement: "Refinement"
+		refinement: "kRefinement"
 	) -> "CombinedGeneComponentIC":
 		"""
 		"""
 		gene_comp_ics: List[pd.DataFrame] = []
 
-		for outer_iteration in refinement.iterations[k]:
+		for outer_iteration in refinement.iterations:
 			for inner_iteration in outer_iteration:
-
 				gene_comp_ics.append(
 					inner_iteration.gene_component_IC.data
 				)

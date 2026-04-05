@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import List, TYPE_CHECKING
+from typing import List, Optional, overload, TYPE_CHECKING
 
 from .Data2D import Data2D, Data2DView
 from .GeneSet import GeneSet
@@ -8,7 +8,7 @@ from .Phenotypes import Phenotype
 from .Utils import compute_information_coefficient, ssGSEAResult, Log
 
 if TYPE_CHECKING:
-	from .Refinement import Refinement
+	from .Refinement import Refinement, kRefinement
 
 class PhenotypeComponentIC(Data2D):
 	
@@ -57,12 +57,11 @@ class PhenotypeComponentIC(Data2D):
 			super().__init__(msg)
 
 	@classmethod
-	def from_refinement(
+	def from_krefinement(
 		cls,
-		k: int,
-		i: int, 
-		phen_name: str,
-		refinement: "Refinement"
+		refinement: "kRefinement",
+		i: int,
+		phen_name: str
 	) -> "PhenotypeComponentIC":
 		"""
 		"""
@@ -72,8 +71,9 @@ class PhenotypeComponentIC(Data2D):
 				f"data is missing (None)."
 			)
 
-		full_ssgsea_res_df: ssGSEAResult = refinement.ssgsea_res[k]
-		test_sample_names: List[str] = refinement.test_samples[k][i]
+		full_ssgsea_res_df = refinement.ssgsea_res
+		test_sample_names = refinement.test_samples[i]
+
 		phen_data: Phenotype = refinement.phenotypes[phen_name]
 
 		test_ssgsea_res = full_ssgsea_res_df.subset(
@@ -112,10 +112,13 @@ class PhenotypeComponentIC(Data2D):
 					)
 					
 				except Exception as e:
-					k = int(gene_set_name[1])
+					#k = int(gene_set_name[1])
 					comp_num = int(gene_set_name[4])
-					gene_set = refinement._component_clusters[k][comp_num].gene_set
-					
+
+					gene_set = (
+						refinement.component_clusters[comp_num].gene_set
+					)
+
 					raise cls.PhenCompNumericException(
 						e,
 						one_ssgsea_res,
@@ -125,7 +128,7 @@ class PhenotypeComponentIC(Data2D):
 						phen_feature_name,
 						gene_set
 					)
-
+			
 				ic_array[x,y] = ic
 
 		res_df = pd.DataFrame(
@@ -135,6 +138,7 @@ class PhenotypeComponentIC(Data2D):
 		)
 
 		return cls(res_df)
+
 
 	@property
 	def data_name(self) -> str: return "Phenotype and Component IC"

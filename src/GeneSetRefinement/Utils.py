@@ -7,7 +7,7 @@ from multiprocessing import Process, Lock
 from multiprocessing.synchronize import Lock as LockT
 from multiprocessing.pool import Pool
 import numpy as np
-from numpy import in1d, full, absolute
+from numpy import isin, full, absolute
 from numpy.random import random_sample, seed 
 import pandas as pd
 from pathlib import Path
@@ -675,7 +675,7 @@ def single_sample_gsea(
 
 	gene_score_sorted = gene_score.sort_values(ascending=False)
 
-	in_ = in1d(
+	in_ = isin(
 		gene_score_sorted.index,
 		gene_set_genes,
 		assume_unique=True

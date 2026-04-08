@@ -102,6 +102,10 @@ class ComponentCluster(RefinementObject):
 	@property
 	def component_names(self) -> List[str]:
 		return self._component_names
+	
+	@property
+	def median_gene_ics(self) -> pd.Series:
+		return self._cluster_median_ic
 
 	@property
 	def gene_set(self) -> GeneSet: return self._gene_set

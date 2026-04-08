@@ -7,6 +7,7 @@ from multiprocessing import Pool, Lock, Queue, Manager
 from multiprocessing.synchronize import Lock as TLock
 import numpy as np
 import os
+import pandas as pd
 import pickle
 import psutil
 import subprocess
@@ -406,6 +407,14 @@ class kRefinement(RefinementObject):
 	@property
 	def phenotype_component_ics(self) -> List[Dict[str, PhenotypeComponentIC]]:
 		return self._phen_comp_ics
+	
+	def get_component_gene_median_ics(
+		self,
+		component: int
+	) -> pd.Series:
+		"""
+		"""
+		return self._component_clusters[component].median_gene_ics
 
 
 class Refinement(RefinementObject):

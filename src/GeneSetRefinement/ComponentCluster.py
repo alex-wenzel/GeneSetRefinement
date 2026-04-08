@@ -17,6 +17,7 @@ class ComponentCluster(RefinementObject):
 	_cutoff: float
 	
 	_component_names: List[str]
+	_cluster_median_ic: pd.Series
 	_gene_set: GeneSet
 
 	def __init__(
@@ -45,8 +46,13 @@ class ComponentCluster(RefinementObject):
 
 		self._component_names = cluster_gene_comp_ic.col_names
 
+		## Get median ICs
+		self._cluster_median_ic = self._get_component_gene_median_ic(
+			cluster_gene_comp_ic,
+		)
+
 		## Generate gene set based on cutoff
-		self._gene_set = self._get_component_gene_set(cluster_gene_comp_ic)
+		self._gene_set = self._get_component_gene_set()
 
 	def _subset_gene_comp_ic(
 		self,
@@ -62,26 +68,27 @@ class ComponentCluster(RefinementObject):
 		return gene_comp_ic_df.subset(
 			column_names = samples_in_cluster
 		)
-
-
-	def _get_component_gene_set(
+	
+	def _get_component_gene_median_ic(
 		self,
-		#cluster_gene_comp_ic: CombinedGeneComponentIC
 		cluster_gene_comp_ic: Data2DView[CombinedGeneComponentIC]
-	) -> GeneSet:
+	) -> pd.Series:
 		"""
 		"""
-		## Typing skipped because current version of Pandas 
-		## doesn't type apply() correctly. 
-		cluster_median_s = pd.Series(
+		return pd.Series(
 			cluster_gene_comp_ic.data.apply( #type: ignore
 				func = np.median,
 				axis = 1
 			)
-		).sort_values(ascending = False)
+		).sort_values(ascending=False)
 
-		gene_set_genes: List[str] = cluster_median_s[
-			cluster_median_s > self._cutoff
+	def _get_component_gene_set(
+		self
+	) -> GeneSet:
+		"""
+		"""
+		gene_set_genes: List[str] = self._cluster_median_ic[
+			self._cluster_median_ic > self._cutoff
 		].index.to_list()
 
 		return GeneSet(
@@ -95,6 +102,10 @@ class ComponentCluster(RefinementObject):
 	@property
 	def component_names(self) -> List[str]:
 		return self._component_names
+	
+	@property
+	def median_gene_ics(self) -> pd.Series:
+		return self._cluster_median_ic
 
 	@property
 	def gene_set(self) -> GeneSet: return self._gene_set

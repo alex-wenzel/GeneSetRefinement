@@ -19,7 +19,8 @@ dependencies = [
 	"scikit-learn>=1.7.0",
 	"scipy>=1.16.0",
 	"psutil>=7.0.0",
-	"requests>2.32.3"
+	"requests>2.32.3",
+	"plotnine>=0.15.3"
 ]
 
 description = "A Python package implementing Gene Set Refinement."

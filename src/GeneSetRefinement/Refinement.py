@@ -16,6 +16,7 @@ import sys
 from typing import Dict, List, Optional, cast, Tuple
 
 from .ComponentCluster import ComponentCluster
+from .Cophenetic import get_nmf_consensus_cophenetic
 from .Data2D import Data2DView
 from .Expression import Expression
 from .GeneComponentIC import CombinedGeneComponentIC
@@ -40,6 +41,7 @@ class kRefinement(RefinementObject):
 	_gs: GeneSet
 	_n_outer: int
 	_n_inner: int
+	_n_coph: int
 	_max_tries: int
 	_cutoff: float
 	_gsea_stat: str
@@ -50,6 +52,7 @@ class kRefinement(RefinementObject):
 
 	_iterations: List[List[InnerIteration]]
 	_test_samples: List[List[str]]
+	_coph: float
 	_kmeans: KMeans
 	_component_clusters: Dict[int, ComponentCluster]
 	_all_ssgsea_res: ssGSEAResult
@@ -69,7 +72,8 @@ class kRefinement(RefinementObject):
 		self._phens = ref.phenotypes
 		self._gs = ref.gene_set
 		self._n_outer = ref.n_outer_iterations
-		self._n_inner = ref.n_inner_iterations	
+		self._n_inner = ref.n_inner_iterations
+		self._n_coph = ref.n_cophenetic_iterations
 		self._max_tries = ref.max_downsample_tries
 		self._cutoff = ref.cutoff
 		self._gsea_stat = ref.gsea_stat
@@ -240,6 +244,21 @@ class kRefinement(RefinementObject):
 
 		comb_gene_comp_ics = CombinedGeneComponentIC.from_krefinement(self)
 
+		## Cophenetic coefficient
+
+		self._log(
+			f"Computing cophenetic coefficient from combined clusters",
+			tabs = 1
+		)
+
+		self._coph = get_nmf_consensus_cophenetic(
+			comb_gene_comp_ics.data,
+			self._k,
+			self._rng,
+			iterations = self._n_coph,
+			n_cores = self._n_proc
+		)
+
 		## Cluster components
 
 		self._kmeans = KMeans(
@@ -391,6 +410,8 @@ class kRefinement(RefinementObject):
 
 	## Results properties
 	@property
+	def cophenetic_coefficient(self) -> float: return self._coph
+	@property
 	def iterations(self) -> List[List[InnerIteration]]:
 		return self._iterations
 	@property
@@ -429,6 +450,7 @@ class Refinement(RefinementObject):
 	_ks: List[int]
 	_n_outer: int
 	_n_inner: int
+	_n_coph_iter: int
 	_cutoff: float
 	_gsea_stat: str
 	_seed: int
@@ -457,6 +479,7 @@ class Refinement(RefinementObject):
 		k_values: List[int],
 		n_outer_iterations: int = 10,
 		n_inner_iterations: int = 50,
+		n_cophenetic_iterations: int = 25,
 		min_total_gene_counts: int = 5,
 		cutoff: float = 0.3,
 		gsea_statistic: str = "auc",
@@ -572,6 +595,7 @@ class Refinement(RefinementObject):
 		self._ks = k_values
 		self._n_outer = n_outer_iterations
 		self._n_inner = n_inner_iterations
+		self._n_coph_iter = n_cophenetic_iterations
 		self._cutoff = cutoff
 		self._gsea_stat = gsea_statistic
 		self._seed = random_seed
@@ -805,6 +829,8 @@ class Refinement(RefinementObject):
 	def n_outer_iterations(self) -> int: return self._n_outer
 	@property
 	def n_inner_iterations(self) -> int: return self._n_inner
+	@property
+	def n_cophenetic_iterations(self) -> int: return self._n_coph_iter
 	@property
 	def max_downsample_tries(self) -> int: return self._max_tries
 	@property

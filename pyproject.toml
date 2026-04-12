@@ -20,7 +20,8 @@ dependencies = [
 	"scipy>=1.16.0",
 	"psutil>=7.0.0",
 	"requests>2.32.3",
-	"plotnine>=0.15.3"
+	"plotnine>=0.15.3",
+	"multiprocess >= 0.70.18"
 ]
 
 description = "A Python package implementing Gene Set Refinement."

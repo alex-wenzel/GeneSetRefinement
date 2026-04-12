@@ -1,4 +1,4 @@
-__version__ = "1.6.1"
+__version__ = "1.6.2"
 from .Cophenetic import get_nmf_consensus_cophenetic
 from .Data2D import Data2D, Data2DView
 from .Expression import Expression
